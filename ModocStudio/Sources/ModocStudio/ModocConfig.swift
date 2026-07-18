@@ -90,6 +90,9 @@ enum ModocConfig {
     static func ensureProjectsDirectory() throws {
         let fm = FileManager.default
         try fm.createDirectory(at: projectsURL, withIntermediateDirectories: true)
+        try fm.createDirectory(at: endProductsURL, withIntermediateDirectories: true)
+        try fm.createDirectory(at: endProductsURL.appendingPathComponent("inbox", isDirectory: true), withIntermediateDirectories: true)
+        try fm.createDirectory(at: endProductsURL.appendingPathComponent("passed", isDirectory: true), withIntermediateDirectories: true)
         let probe = projectsURL.appendingPathComponent(".modoc-write-test")
         try Data("ok".utf8).write(to: probe)
         try fm.removeItem(at: probe)
@@ -135,6 +138,10 @@ enum ModocConfig {
 
     static var projectsURL: URL {
         rootURL.appendingPathComponent("output/projects", isDirectory: true)
+    }
+
+    static var endProductsURL: URL {
+        rootURL.appendingPathComponent("output/end-products", isDirectory: true)
     }
 
     static func setRootURL(_ url: URL) {

@@ -3,6 +3,7 @@ import SwiftUI
 struct ProjectDetailView: View {
     @EnvironmentObject private var store: ProjectStore
     let project: VideoProject
+    var tabSet: TabSet = .workspace
 
     @State private var tab: DetailTab = .workflow
     @State private var selectedClipID: String?
@@ -11,6 +12,11 @@ struct ProjectDetailView: View {
     @State private var loadedClips: [ClipRecord] = []
     @State private var loadedScript = ""
     @State private var isLoadingDetail = true
+
+    enum TabSet {
+        case workspace
+        case full
+    }
 
     enum DetailTab: String, CaseIterable, Identifiable {
         case workflow = "Workflow"
@@ -24,26 +30,32 @@ struct ProjectDetailView: View {
         case graph = "Graph"
 
         var id: String { rawValue }
+
+        static func tabs(for set: TabSet) -> [DetailTab] {
+            switch set {
+            case .workspace:
+                [.workflow, .script, .articleCheck, .voiceover, .clips, .log, .graph]
+            case .full:
+                allCases
+            }
+        }
     }
+
+    private var visibleTabs: [DetailTab] { DetailTab.tabs(for: tabSet) }
 
     private var clips: [ClipRecord] { loadedClips }
     private var videoStatus: (done: Int, total: Int) { current.videoStatus(for: clips) }
 
     private var current: VideoProject {
-        store.selectedProject ?? project
+        store.projects.first { $0.id == project.id } ?? project
     }
 
     var body: some View {
         VStack(spacing: 0) {
             header
             Divider()
-            Picker("Tab", selection: $tab) {
-                ForEach(DetailTab.allCases) { t in
-                    Text(t.rawValue).tag(t)
-                }
-            }
-            .pickerStyle(.segmented)
-            .padding()
+            tabPicker
+            Divider()
 
             Group {
                 if isLoadingDetail {
@@ -58,10 +70,20 @@ struct ProjectDetailView: View {
                     tabContent
                 }
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .frame(minWidth: 0, maxWidth: .infinity, maxHeight: .infinity)
         }
-        .onAppear { loadDetailContent() }
-        .onChange(of: project.id) { _, _ in loadDetailContent() }
+        .frame(minWidth: 0, maxWidth: .infinity, maxHeight: .infinity)
+        .onAppear {
+            ensureValidTab()
+            loadDetailContent()
+        }
+        .onChange(of: project.id) { _, _ in
+            ensureValidTab()
+            loadDetailContent()
+        }
+        .onChange(of: store.pipeline.isRunning) { _, running in
+            if !running { loadDetailContent() }
+        }
         .confirmationDialog(
             "Delete “\(current.manifest.title)”?",
             isPresented: $confirmDeleteProject,
@@ -74,6 +96,42 @@ struct ProjectDetailView: View {
         } message: {
             Text("The project folder and all scripts, clips, and videos will be moved to the Trash.")
         }
+    }
+
+    private func ensureValidTab() {
+        if !visibleTabs.contains(tab) {
+            tab = .workflow
+        }
+    }
+
+    private var tabPicker: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                ForEach(visibleTabs) { item in
+                    Button {
+                        tab = item
+                    } label: {
+                        Text(item.rawValue)
+                            .font(.subheadline.weight(tab == item ? .semibold : .regular))
+                            .foregroundStyle(tab == item ? Color.white : Color.primary)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 7)
+                            .background(
+                                Capsule()
+                                    .fill(tab == item ? Color.accentColor : Color(nsColor: .controlBackgroundColor))
+                            )
+                            .overlay(
+                                Capsule()
+                                    .stroke(Color.primary.opacity(tab == item ? 0 : 0.08), lineWidth: 1)
+                            )
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
+        }
+        .background(Color(nsColor: .windowBackgroundColor))
     }
 
     private func deleteCurrentProject() {
@@ -138,44 +196,57 @@ struct ProjectDetailView: View {
     }
 
     private var header: some View {
-        HStack(alignment: .top) {
-            VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .top, spacing: 12) {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(current.manifest.title)
+                        .font(.headline)
+                        .lineLimit(2)
+                        .multilineTextAlignment(.leading)
+                    HStack(spacing: 8) {
+                        PhaseBadge(phase: current.manifest.phase)
+                        LanguageBadge(language: current.manifest.language)
+                    }
+                    if let url = URL(string: current.manifest.blogURL) {
+                        Link(current.manifest.blogURL, destination: url)
+                            .font(.caption)
+                            .lineLimit(1)
+                    }
+                    HStack(spacing: 12) {
+                        if !clips.isEmpty {
+                            Text("\(videoStatus.done)/\(videoStatus.total) clips")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        if current.hasVoiceover {
+                            Label("Voiceover", systemImage: "waveform")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+                .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
+
                 HStack(spacing: 8) {
-                    PhaseBadge(phase: current.manifest.phase)
-                    LanguageBadge(language: current.manifest.language)
-                }
-                if let url = URL(string: current.manifest.blogURL) {
-                    Link(current.manifest.blogURL, destination: url)
-                        .font(.caption)
-                        .lineLimit(1)
-                }
-                HStack(spacing: 12) {
-                    if !clips.isEmpty {
-                        Text("\(videoStatus.done)/\(videoStatus.total) clips")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+                    Button {
+                        store.revealInFinder(current)
+                    } label: {
+                        Label("Finder", systemImage: "folder")
                     }
-                    if current.hasVoiceover {
-                        Label("Voiceover", systemImage: "waveform")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+                    .help("Show in Finder")
+
+                    Button(role: .destructive) {
+                        confirmDeleteProject = true
+                    } label: {
+                        Label("Delete", systemImage: "trash")
                     }
+                    .help("Move project to Trash")
+                    .disabled(store.pipeline.isRunning)
                 }
             }
-            Spacer()
-            Button {
-                store.revealInFinder(current)
-            } label: {
-                Label("Show in Finder", systemImage: "folder")
-            }
-            Button(role: .destructive) {
-                confirmDeleteProject = true
-            } label: {
-                Label("Delete", systemImage: "trash")
-            }
-            .disabled(store.pipeline.isRunning)
         }
-        .padding()
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
     }
 }
 
@@ -208,7 +279,7 @@ struct WorkflowView: View {
         AutoPipelineOptions.full(includeVideos: autoIncludeVideos).pendingSteps(for: current)
     }
     private var current: VideoProject {
-        store.selectedProject ?? project
+        store.projects.first { $0.id == project.id } ?? project
     }
 
     private var activeLanguage: ProjectLanguage { current.manifest.language }
@@ -399,7 +470,7 @@ struct WorkflowView: View {
             Divider()
             Text("Pipeline timing")
                 .font(.headline)
-            Text("Finalize when you are done reviewing this language version. Manual review time stops and totals appear in Statistics.")
+            Text("Finalize when you are done reviewing this language version.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
@@ -514,7 +585,7 @@ struct WorkflowView: View {
         actionError = nil
         isWorking = true
         defer { isWorking = false }
-        let p = store.selectedProject ?? project
+        let p = current
         do {
             try await store.runAutoPipeline(
                 p,
@@ -529,7 +600,7 @@ struct WorkflowView: View {
         actionError = nil
         isWorking = true
         defer { isWorking = false }
-        let p = store.selectedProject ?? project
+        let p = current
         do {
             try await store.runWorkflowStep(p, step: step)
             if thenOpenArticleCheck {

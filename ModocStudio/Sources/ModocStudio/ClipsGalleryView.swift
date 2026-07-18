@@ -12,7 +12,7 @@ struct ClipsGalleryView: View {
     @State private var confirmRegenerateAll = false
 
     private var current: VideoProject {
-        store.selectedProject ?? project
+        store.projects.first { $0.id == project.id } ?? project
     }
 
     private var videoStatus: (done: Int, total: Int) {
@@ -42,6 +42,9 @@ struct ClipsGalleryView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .onChange(of: store.pipeline.isRunning) { _, running in
+            if !running { playerKey = UUID() }
+        }
     }
 
     private var clipsToolbar: some View {
@@ -170,8 +173,9 @@ struct ClipsGalleryView: View {
                     .foregroundStyle(.secondary)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-        } else if hasVideo(id) {
-            MacAVPlayerView(url: current.videoURL(for: id))
+        } else if hasVideo(id), let url = current.resolvedVideoURL(for: id) {
+            MacAVPlayerView(url: url)
+                .frame(minHeight: 280)
                 .padding(.horizontal, 12)
                 .padding(.bottom, 8)
                 .id(playerKey)
@@ -241,9 +245,6 @@ struct ClipsGalleryView: View {
     }
 
     private func hasVideo(_ clipID: String) -> Bool {
-        let url = current.videoURL(for: clipID)
-        guard let attrs = try? FileManager.default.attributesOfItem(atPath: url.path),
-              let size = attrs[.size] as? Int else { return false }
-        return size > 1000
+        current.hasVideo(for: clipID)
     }
 }

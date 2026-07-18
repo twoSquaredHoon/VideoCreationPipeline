@@ -26,7 +26,7 @@ struct NewProjectSheet: View {
 
             Text(isManual
                 ? "Paste a FeverCoach blog URL to create a project. Run each pipeline step yourself in Browse Projects — script, article check, clip prompts, voiceover, and videos."
-                : "Paste a FeverCoach blog URL. The full pipeline runs automatically: script → article check → clip prompts → voiceover → Veo videos.")
+                : "Paste a FeverCoach blog URL. The pipeline runs in the background — you can browse the app while it works.")
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
 
@@ -82,17 +82,11 @@ struct NewProjectSheet: View {
                     .font(.callout)
             }
 
-            if !isManual && (isCreating || store.pipeline.isRunning) {
-                VStack(alignment: .leading, spacing: 8) {
-                    HStack {
-                        ProgressView()
-                        Text(progressLabel)
-                            .foregroundStyle(.secondary)
-                    }
-                    if !store.pipeline.logText.isEmpty {
-                        LogView(log: store.pipeline.logText)
-                            .frame(maxHeight: 120)
-                    }
+            if isCreating {
+                HStack(spacing: 8) {
+                    ProgressView().controlSize(.small)
+                    Text("Creating project…")
+                        .foregroundStyle(.secondary)
                 }
             }
 
@@ -100,7 +94,6 @@ struct NewProjectSheet: View {
                 Spacer()
                 Button("Cancel") { dismiss() }
                     .keyboardShortcut(.cancelAction)
-                    .disabled(isCreating && store.pipeline.isRunning)
                 Button(isManual ? "Create Project" : "Create & Run Full Pipeline") {
                     Task { await create() }
                 }
@@ -113,13 +106,6 @@ struct NewProjectSheet: View {
         .onAppear {
             focusField = true
         }
-    }
-
-    private var progressLabel: String {
-        if let step = store.pipeline.runningStep {
-            return "Running: \(step.title)…"
-        }
-        return "Starting pipeline…"
     }
 
     private var canCreate: Bool {
@@ -152,7 +138,8 @@ struct NewProjectSheet: View {
                 blogURL: url,
                 language: language,
                 autoPipeline: pipelineOptions,
-                openInBrowse: isManual
+                openInBrowse: isManual,
+                runPipelineInBackground: !isManual
             )
             dismiss()
         } catch {

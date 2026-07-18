@@ -108,9 +108,56 @@ final class PipelineService: ObservableObject {
                     "--language", project.manifest.language.rawValue,
                 ]
             )
+        case .reviewFinishedVideo:
+            throw PipelineError.exitCode(1)
         }
 
         try appendToProjectLog(project: project)
+    }
+
+    func runEndProductReview(
+        videoPath: URL,
+        projectDir: URL?,
+        passedURL: URL
+    ) async throws {
+        isRunning = true
+        runningStep = .reviewFinishedVideo
+        clearLog()
+        defer {
+            isRunning = false
+            runningStep = nil
+        }
+
+        appendLog("=== Medical review: \(videoPath.lastPathComponent) ===\n")
+        var args = [
+            "--video", videoPath.path,
+            "--archive-passed",
+            "--passed-root", passedURL.path,
+        ]
+        if let projectDir {
+            args += ["--project-dir", projectDir.path]
+        }
+        try await runPython(script: "scripts/review_end_product.py", args: args)
+    }
+
+    func runEndProductInboxReview(inboxURL: URL, passedURL: URL) async throws {
+        isRunning = true
+        runningStep = .reviewFinishedVideo
+        clearLog()
+        defer {
+            isRunning = false
+            runningStep = nil
+        }
+
+        appendLog("=== Medical review: all inbox videos ===\n")
+        try await runPython(
+            script: "scripts/review_end_product.py",
+            args: [
+                "--inbox", inboxURL.path,
+                "--archive-passed",
+                "--passed-root", passedURL.path,
+            ]
+        )
     }
 
     private func appendToProjectLog(project: VideoProject) throws {
@@ -135,6 +182,7 @@ final class PipelineService: ObservableObject {
         case createCustomClip(linesFile: URL, generateVideo: Bool)
         case verifyScript
         case rewriteScriptLine(String)
+        case reviewFinishedVideo
 
         var title: String {
             switch self {
@@ -147,6 +195,7 @@ final class PipelineService: ObservableObject {
             case .createCustomClip: return "Create custom clip"
             case .verifyScript: return "Script vs article"
             case .rewriteScriptLine(let id): return "Rewrite script line \(id)"
+            case .reviewFinishedVideo: return "Medical review (finished video)"
             }
         }
     }

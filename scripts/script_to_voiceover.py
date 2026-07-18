@@ -20,6 +20,11 @@ from path_hints import format_clips_dir_not_found, format_script_not_found
 DEFAULT_TTS_MODEL = "gemini-2.5-flash-preview-tts"
 OUTPUT_BASE = PROJECT_ROOT / "output" / "voiceovers"
 SECTION_HEADERS = frozenset({"HOOK", "BODY", "RELIEF", "CTA"})
+# Clip markup prefixes — visible in script.txt for editors, stripped for TTS.
+SPEECH_LABEL_PREFIX_RE = re.compile(
+    r"^(?:EXPLAIN(?:\s+CLIP\s+\d+)?|SIGNS(?:\s+CLIP\s+\d+)?)\s*:\s*",
+    re.IGNORECASE,
+)
 # Typical Veo clip lengths used by script_to_clips (seconds per clip type).
 DEFAULT_CLIP_SECONDS = {
     "hook": 4,
@@ -56,8 +61,17 @@ def language_from_script_file(path: Path) -> str | None:
     return None
 
 
+def strip_speech_label(line: str) -> str | None:
+    """Remove EXPLAIN:/SIGNS: clip labels; return spoken text or None if line is label-only."""
+    stripped = line.strip()
+    if not stripped:
+        return None
+    spoken = SPEECH_LABEL_PREFIX_RE.sub("", stripped).strip()
+    return spoken or None
+
+
 def script_to_speech_text(script: str) -> str:
-    """Strip section labels; keep only lines meant to be spoken."""
+    """Strip section labels and clip markup; keep only lines meant to be spoken."""
     speech_lines: list[str] = []
     for line in script.splitlines():
         stripped = line.strip()
@@ -68,7 +82,10 @@ def script_to_speech_text(script: str) -> str:
         header = stripped.rstrip(":").upper()
         if header in SECTION_HEADERS:
             continue
-        speech_lines.append(stripped)
+        spoken = strip_speech_label(stripped)
+        if spoken is None:
+            continue
+        speech_lines.append(spoken)
     text = "\n".join(speech_lines).strip()
     text = re.sub(r"\n{3,}", "\n\n", text)
     return text

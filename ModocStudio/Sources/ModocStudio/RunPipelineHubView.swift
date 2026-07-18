@@ -6,8 +6,7 @@ struct RunPipelineHubView: View {
     private var todayID: String { BatchRunner.todayFolderID() }
 
     private let gridColumns = [
-        GridItem(.flexible(), spacing: 20),
-        GridItem(.flexible(), spacing: 20),
+        GridItem(.adaptive(minimum: 260, maximum: 420), spacing: 20),
     ]
 
     var body: some View {
@@ -54,11 +53,10 @@ struct RunPipelineHubView: View {
                         store.showCustomBatchSheet = true
                     }
                 }
-
-                browseHint
             }
-            .padding(32)
+            .padding(24)
             .frame(maxWidth: 920, alignment: .leading)
+            .frame(maxWidth: .infinity)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
@@ -71,19 +69,6 @@ struct RunPipelineHubView: View {
                 .font(.title3)
                 .foregroundStyle(.secondary)
         }
-    }
-
-    private var browseHint: some View {
-        HStack(spacing: 10) {
-            Image(systemName: "folder.fill")
-                .foregroundStyle(.secondary)
-            Text("Open Browse Projects to edit scripts, add clip prompts, run voiceover, and generate videos when you are ready.")
-                .font(.callout)
-                .foregroundStyle(.secondary)
-        }
-        .padding(14)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: 12).fill(Color(nsColor: .controlBackgroundColor)))
     }
 
     private func creationCard(
@@ -112,7 +97,7 @@ struct RunPipelineHubView: View {
                     .foregroundStyle(tint)
             }
             .padding(24)
-            .frame(maxWidth: .infinity, minHeight: 220, alignment: .leading)
+            .frame(maxWidth: .infinity, minHeight: 160, alignment: .leading)
             .background(
                 RoundedRectangle(cornerRadius: 16)
                     .fill(Color(nsColor: .controlBackgroundColor))

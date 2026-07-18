@@ -124,6 +124,15 @@ enum BatchStateReader {
         FileManager.default.fileExists(atPath: batchFolderURL.appendingPathComponent("urls.txt").path)
     }
 
+    static func pendingURLCount(in batchFolderURL: URL) -> Int {
+        let urlsFile = batchFolderURL.appendingPathComponent("urls.txt")
+        guard let text = try? String(contentsOf: urlsFile, encoding: .utf8) else { return 0 }
+        return text.split(separator: "\n").filter { line in
+            let trimmed = line.split(separator: "#", maxSplits: 1)[0].trimmingCharacters(in: .whitespaces)
+            return trimmed.hasPrefix("http")
+        }.count
+    }
+
     static func inferProgress(in batchFolderURL: URL, projects: [VideoProject]) -> InferredBatchProgress? {
         let urlsFile = batchFolderURL.appendingPathComponent("urls.txt")
         guard let text = try? String(contentsOf: urlsFile, encoding: .utf8) else { return nil }

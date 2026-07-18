@@ -34,7 +34,8 @@ private struct PipelineProjectView: View {
 
             Divider()
 
-            ProjectDetailView(project: project)
+            ProjectDetailView(project: project, tabSet: .workspace)
+                .frame(minWidth: 0, maxWidth: .infinity, maxHeight: .infinity)
         }
     }
 }

@@ -1,5 +1,16 @@
 import SwiftUI
 
+extension View {
+    /// Keep view alive in a ZStack without forcing window size when another section is visible.
+    func keepAliveSection(active: Bool) -> some View {
+        frame(maxWidth: active ? .infinity : 0, maxHeight: active ? .infinity : 0)
+            .clipped()
+            .opacity(active ? 1 : 0)
+            .allowsHitTesting(active)
+            .accessibilityHidden(!active)
+    }
+}
+
 struct ContentView: View {
     @EnvironmentObject private var store: ProjectStore
 
@@ -14,27 +25,29 @@ struct ContentView: View {
             case .projects: return "Completed Articles"
             case .time: return "Pipeline Time"
             }
+        case .videoReview: return "Video Review"
         }
     }
 
     var body: some View {
         ZStack {
             HomeView()
-                .opacity(store.appSection == .home ? 1 : 0)
-                .allowsHitTesting(store.appSection == .home)
+                .keepAliveSection(active: store.appSection == .home)
 
             BrowseProjectsView()
-                .opacity(store.appSection == .browse ? 1 : 0)
-                .allowsHitTesting(store.appSection == .browse)
+                .keepAliveSection(active: store.appSection == .browse)
 
             PipelineWorkspaceView()
-                .opacity(store.appSection == .pipeline ? 1 : 0)
-                .allowsHitTesting(store.appSection == .pipeline)
+                .keepAliveSection(active: store.appSection == .pipeline)
 
             GlobalStatsView()
-                .opacity(store.appSection == .stats ? 1 : 0)
-                .allowsHitTesting(store.appSection == .stats)
+                .keepAliveSection(active: store.appSection == .stats)
+
+            VideoReviewView()
+                .keepAliveSection(active: store.appSection == .videoReview)
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .clipped()
         .navigationTitle(sectionTitle)
         .toolbar {
             ToolbarItemGroup(placement: .navigation) {
@@ -57,7 +70,7 @@ struct ContentView: View {
                 }
             }
 
-            if store.appSection == .browse {
+            if store.appSection == .browse || store.appSection == .videoReview {
                 ToolbarItem(placement: .primaryAction) {
                     HStack(spacing: 8) {
                         if store.isRefreshingProjects {
@@ -83,6 +96,41 @@ struct ContentView: View {
                     .help("Refresh stats")
                 }
             }
+
+            if store.pipeline.isRunning {
+                ToolbarItem(placement: .status) {
+                    PipelineRunningStatusChip()
+                }
+            }
         }
+    }
+}
+
+private struct PipelineRunningStatusChip: View {
+    @EnvironmentObject private var store: ProjectStore
+
+    var body: some View {
+        HStack(spacing: 8) {
+            ProgressView().controlSize(.small)
+            Text(statusLabel)
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+            if store.activePipelineProjectID != nil {
+                Button("View project") {
+                    store.openActivePipelineProject()
+                }
+                .buttonStyle(.borderless)
+                .font(.callout)
+            }
+        }
+        .padding(.horizontal, 4)
+    }
+
+    private var statusLabel: String {
+        if let step = store.pipeline.runningStep {
+            return step.title
+        }
+        return "Pipeline running"
     }
 }

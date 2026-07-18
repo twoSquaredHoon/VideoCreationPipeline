@@ -137,6 +137,24 @@ struct VideoProject: Identifiable, Hashable {
         videosURL.appendingPathComponent("\(clipID).mp4")
     }
 
+    func resolvedVideoURL(for clipID: String) -> URL? {
+        let candidates = [
+            videoURL(for: clipID),
+            LanguageWorkspace.directory(for: self, language: manifest.language)
+                .appendingPathComponent("videos/\(clipID).mp4"),
+        ]
+        for url in candidates {
+            guard let attrs = try? FileManager.default.attributesOfItem(atPath: url.path),
+                  let size = attrs[.size] as? Int, size > 1000 else { continue }
+            return url
+        }
+        return nil
+    }
+
+    func hasVideo(for clipID: String) -> Bool {
+        resolvedVideoURL(for: clipID) != nil
+    }
+
     var hasScript: Bool {
         FileManager.default.fileExists(atPath: scriptURL.path)
     }
@@ -224,12 +242,7 @@ struct VideoProject: Identifiable, Hashable {
 
     func videoStatus(for clips: [ClipRecord]) -> (done: Int, total: Int) {
         let total = clips.count
-        let done = clips.filter { clip in
-            let path = videoURL(for: clip.id)
-            guard let attrs = try? FileManager.default.attributesOfItem(atPath: path.path),
-                  let size = attrs[.size] as? Int else { return false }
-            return size > 1000
-        }.count
+        let done = clips.filter { hasVideo(for: $0.id) }.count
         return (done, total)
     }
 

@@ -2,17 +2,21 @@ import SwiftUI
 
 struct BrowseProjectsView: View {
     @EnvironmentObject private var store: ProjectStore
+    @State private var showDetailOnNarrow = false
 
     private var dateFolders: [ProjectBatchFolder] {
         store.ensureTodayInBatchFolders(store.batchFolders())
     }
 
     var body: some View {
-        HStack(spacing: 0) {
-            catalogPanel
-                .frame(width: 400)
-            Divider()
-            detailPanel
+        GeometryReader { geometry in
+            let isNarrow = geometry.size.width < 760
+
+            if isNarrow {
+                narrowLayout
+            } else {
+                wideLayout(width: geometry.size.width)
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(nsColor: .windowBackgroundColor))
@@ -22,15 +26,52 @@ struct BrowseProjectsView: View {
             }
             store.scheduleRefreshProjects(autoSelect: false)
         }
+        .onChange(of: store.selectedProjectID) { _, newValue in
+            if newValue != nil { showDetailOnNarrow = true }
+        }
+    }
+
+    private var narrowLayout: some View {
+        Group {
+            if showDetailOnNarrow, store.selectedProject != nil {
+                VStack(spacing: 0) {
+                    HStack {
+                        Button {
+                            showDetailOnNarrow = false
+                        } label: {
+                            Label("Projects", systemImage: "chevron.left")
+                        }
+                        .buttonStyle(.bordered)
+                        Spacer()
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+                    Divider()
+                    detailPanel
+                }
+            } else {
+                catalogPanel
+            }
+        }
+    }
+
+    private func wideLayout(width: CGFloat) -> some View {
+        HStack(spacing: 0) {
+            catalogPanel
+                .frame(width: min(340, max(220, width * 0.32)))
+            Divider()
+            detailPanel
+                .frame(minWidth: 0, maxWidth: .infinity)
+        }
     }
 
     private var catalogPanel: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 24) {
+            VStack(alignment: .leading, spacing: 20) {
                 VStack(alignment: .leading, spacing: 8) {
                     Text("Browse Projects")
                         .font(.largeTitle.bold())
-                    Text("Pick a date, then open a project to edit scripts and clip prompts.")
+                    Text("Pick a date, then open a project to edit and run pipeline steps.")
                         .font(.callout)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -42,7 +83,7 @@ struct BrowseProjectsView: View {
                         systemImage: "calendar",
                         description: Text("Run a daily batch or single video from Run Pipeline.")
                     )
-                    .frame(maxWidth: .infinity, minHeight: 200)
+                    .frame(maxWidth: .infinity, minHeight: 180)
                 } else {
                     datePickerRow
                     if let dateID = store.browseSelectedDateFolder {
@@ -50,9 +91,10 @@ struct BrowseProjectsView: View {
                     }
                 }
             }
-            .padding(24)
+            .padding(20)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
+        .frame(minWidth: 0, maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(nsColor: .windowBackgroundColor))
     }
 
@@ -90,10 +132,7 @@ struct BrowseProjectsView: View {
         } else {
             let languages = store.languageFolders(in: dateFolderID)
             if languages.isEmpty {
-                Text("No projects for this date yet.")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-                    .padding(.vertical, 8)
+                batchEmptyState(for: dateFolderID)
             } else {
                 ForEach(languages) { lang in
                     projectSection(
@@ -103,6 +142,33 @@ struct BrowseProjectsView: View {
                 }
             }
         }
+    }
+
+    @ViewBuilder
+    private func batchEmptyState(for dateFolderID: String) -> some View {
+        let pending = store.batchPendingURLCount(for: dateFolderID)
+        let needsResume = store.batchNeedsResume(for: dateFolderID)
+
+        VStack(alignment: .leading, spacing: 8) {
+            Text("No projects for this date yet.")
+                .font(.callout)
+                .foregroundStyle(.secondary)
+
+            if pending > 0 {
+                Text("\(pending) URL\(pending == 1 ? "" : "s") in urls.txt — a batch was started but never created project folders.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                if needsResume {
+                    Text("Nothing is running now. Resume from Run Pipeline or run ./resume-batch.sh \(dateFolderID) in Terminal.")
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+        }
+        .padding(.vertical, 8)
     }
 
     private func projectSection(title: String, projects: [VideoProject]) -> some View {
@@ -122,6 +188,7 @@ struct BrowseProjectsView: View {
                             isSelected: store.selectedProjectID == project.id
                         ) {
                             store.selectedProjectID = project.id
+                            showDetailOnNarrow = true
                         }
                     }
                 }
@@ -132,14 +199,15 @@ struct BrowseProjectsView: View {
     @ViewBuilder
     private var detailPanel: some View {
         if let project = store.selectedProject {
-            ProjectDetailView(project: project)
+            ProjectDetailView(project: project, tabSet: .workspace)
+                .frame(minWidth: 0, maxWidth: .infinity, maxHeight: .infinity)
         } else {
             ContentUnavailableView(
                 "Select a project",
                 systemImage: "film.stack",
-                description: Text("Choose a project on the left to edit scripts, prompts, and run later pipeline steps.")
+                description: Text("Choose a project to edit scripts and run pipeline steps.")
             )
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .frame(minWidth: 0, maxWidth: .infinity, maxHeight: .infinity)
             .background(Color(nsColor: .controlBackgroundColor))
         }
     }

@@ -5,6 +5,7 @@ enum AppSection: String, Hashable {
     case browse
     case pipeline
     case stats
+    case videoReview
 }
 
 enum StatsSubsection: String, Hashable {
@@ -40,20 +41,24 @@ struct HomeView: View {
     @EnvironmentObject private var store: ProjectStore
 
     var body: some View {
-        VStack(spacing: 32) {
-            VStack(spacing: 8) {
-                Image(systemName: "film.stack.fill")
-                    .font(.system(size: 52))
-                    .foregroundStyle(.tint)
-                Text("Modoc Studio")
-                    .font(.largeTitle.bold())
-                Text("Choose where to go")
-                    .font(.title3)
-                    .foregroundStyle(.secondary)
-            }
-            .padding(.top, 40)
+        ScrollView {
+            VStack(spacing: 32) {
+                VStack(spacing: 8) {
+                    Image(systemName: "film.stack.fill")
+                        .font(.system(size: 52))
+                        .foregroundStyle(.tint)
+                    Text("Modoc Studio")
+                        .font(.largeTitle.bold())
+                    Text("Choose where to go")
+                        .font(.title3)
+                        .foregroundStyle(.secondary)
+                }
+                .padding(.top, 24)
 
-            HStack(spacing: 20) {
+                LazyVGrid(
+                    columns: [GridItem(.adaptive(minimum: 260, maximum: 420), spacing: 20)],
+                    spacing: 20
+                ) {
                 HomeDestinationCard(
                     title: "Browse Projects",
                     subtitle: "Review daily batch work, edit scripts, and add or refine clip prompts",
@@ -73,6 +78,15 @@ struct HomeView: View {
                 }
 
                 HomeDestinationCard(
+                    title: "Video Review",
+                    subtitle: "Drop finished exports — Gemini reviews the full video",
+                    systemImage: "eye.fill",
+                    tint: .purple
+                ) {
+                    store.enterVideoReview()
+                }
+
+                HomeDestinationCard(
                     title: "Stats",
                     subtitle: "Timing and pipeline history across all projects",
                     systemImage: "chart.bar.fill",
@@ -80,10 +94,12 @@ struct HomeView: View {
                 ) {
                     store.enterStats()
                 }
+                }
             }
-            .padding(.horizontal, 40)
-
-            Spacer()
+            .padding(.horizontal, 24)
+            .padding(.bottom, 32)
+            .frame(maxWidth: 900)
+            .frame(maxWidth: .infinity)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(nsColor: .windowBackgroundColor))
@@ -114,7 +130,7 @@ private struct HomeDestinationCard: View {
                 Spacer(minLength: 0)
             }
             .padding(24)
-            .frame(maxWidth: .infinity, minHeight: 220, alignment: .leading)
+            .frame(maxWidth: .infinity, minHeight: 180, alignment: .leading)
             .background(
                 RoundedRectangle(cornerRadius: 16)
                     .fill(Color(nsColor: .controlBackgroundColor))

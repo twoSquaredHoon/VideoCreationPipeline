@@ -14,13 +14,18 @@ final class ProjectStore: ObservableObject {
     @Published var newProjectCreationMode: NewProjectCreationMode = .automaticFull
     @Published var showSetupSheet = false
     @Published var pipelineFocusedProjectID: String?
+    /// Project currently running an in-app pipeline step (single-video auto run, workflow buttons).
+    @Published var activePipelineProjectID: String?
     @Published private(set) var isRefreshingProjects = false
     @Published var statsRefreshToken = UUID()
     @Published var statsSubsection: StatsSubsection = .hub
+    @Published var videoReviewSelectedItemID: String?
+    @Published var pendingEndProductImportURL: URL?
     @Published var pipeline = PipelineService()
 
     private var refreshTask: Task<Void, Never>?
     private var cachedBatchFolders: [ProjectBatchFolder]?
+    private var autoPipelineRunDepth = 0
 
     var selectedProject: VideoProject? {
         guard let id = selectedProjectID else { return nil }
@@ -92,6 +97,161 @@ final class ProjectStore: ObservableObject {
         appSection = .stats
         statsSubsection = .hub
         scheduleRefreshProjects(autoSelect: false)
+    }
+
+    func enterVideoReview() {
+        appSection = .videoReview
+        scheduleRefreshProjects(autoSelect: false)
+        try? EndProducts.ensureLayout()
+        refreshEndProductSelection()
+    }
+
+    func refreshEndProductSelection() {
+        let inbox = EndProducts.listInboxItems()
+        if let id = videoReviewSelectedItemID,
+           EndProducts.allItems().contains(where: { $0.id == id }) {
+            return
+        }
+        videoReviewSelectedItemID = inbox.first?.id
+    }
+
+    func endProductInboxItems() -> [EndProductItem] {
+        EndProducts.listInboxItems()
+    }
+
+    func endProductPassedItems() -> [EndProductItem] {
+        EndProducts.listPassedItems()
+    }
+
+    var videoReviewSelectedItem: EndProductItem? {
+        guard let id = videoReviewSelectedItemID else { return nil }
+        return EndProducts.allItems().first { $0.id == id }
+    }
+
+    func importEndProductToInbox(from source: URL, project: VideoProject? = nil) throws -> URL {
+        let dest = try EndProducts.importToInbox(from: source, project: project)
+        videoReviewSelectedItemID = dest.standardizedFileURL.path
+        return dest
+    }
+
+    /// Drop on Video Review: import to inbox, optionally link project, then review immediately.
+    func handleEndProductDrop(_ url: URL, runReview: Bool = true) {
+        guard EndProducts.isVideoFile(url) else {
+            ProjectFolderPicker.showError(EndProductError.unsupportedFormat.localizedDescription)
+            return
+        }
+
+        do {
+            let project = EndProducts.guessProject(in: projects, for: url)
+            let dest = try importEndProductToInbox(from: url, project: project)
+            if runReview {
+                Task { await reviewEndProduct(at: dest) }
+            }
+        } catch {
+            ProjectFolderPicker.showError(error.localizedDescription)
+        }
+    }
+
+    func linkEndProduct(at videoURL: URL, to project: VideoProject) throws {
+        var meta = EndProducts.loadMeta(for: videoURL) ?? EndProductMeta()
+        meta.projectPath = project.folderURL.path
+        try EndProducts.saveMeta(meta, for: videoURL)
+    }
+
+    func reviewEndProduct(at videoURL: URL) async {
+        guard !pipeline.isRunning else { return }
+        do {
+            try await runEndProductReview(videoURL: videoURL)
+            refreshEndProductSelection()
+        } catch {
+            ProjectFolderPicker.showError(error.localizedDescription)
+        }
+    }
+
+    func reviewAllInboxEndProducts() async {
+        guard !pipeline.isRunning else { return }
+        guard !EndProducts.listInboxItems().isEmpty else { return }
+        do {
+            try await pipeline.runEndProductInboxReview(
+                inboxURL: EndProducts.inboxURL,
+                passedURL: EndProducts.passedURL
+            )
+            refreshEndProductSelection()
+        } catch {
+            ProjectFolderPicker.showError(error.localizedDescription)
+        }
+    }
+
+    private func runEndProductReview(videoURL: URL) async throws {
+        let meta = EndProducts.loadMeta(for: videoURL)
+        let projectDir = meta?.projectPath.flatMap { URL(fileURLWithPath: $0) }
+        try await pipeline.runEndProductReview(
+            videoPath: videoURL,
+            projectDir: projectDir,
+            passedURL: EndProducts.passedURL
+        )
+    }
+
+    func revealEndProductsInbox() {
+        try? EndProducts.ensureLayout()
+        NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: EndProducts.inboxURL.path)
+    }
+
+    func revealEndProductsPassed() {
+        try? EndProducts.ensureLayout()
+        NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: EndProducts.passedURL.path)
+    }
+
+    func openReviewDocument(for videoURL: URL) {
+        guard let text = EndProducts.loadReviewDocument(for: videoURL) else { return }
+        let docURL = EndProducts.reviewDocumentURL(for: videoURL)
+        try? text.write(to: docURL, atomically: true, encoding: .utf8)
+        NSWorkspace.shared.open(docURL)
+    }
+
+    func copyReviewDocument(for videoURL: URL) {
+        guard let text = EndProducts.loadReviewDocument(for: videoURL) else { return }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
+    }
+
+    func printReviewDocument(for videoURL: URL) {
+        guard let text = EndProducts.loadReviewDocument(for: videoURL) else { return }
+        let title = videoURL.deletingPathExtension().lastPathComponent
+
+        let printInfo = NSPrintInfo()
+        printInfo.horizontalPagination = .automatic
+        printInfo.verticalPagination = .automatic
+        printInfo.isHorizontallyCentered = true
+        printInfo.isVerticallyCentered = false
+        printInfo.topMargin = 36
+        printInfo.bottomMargin = 36
+        printInfo.leftMargin = 36
+        printInfo.rightMargin = 36
+
+        let printableWidth = printInfo.paperSize.width - printInfo.leftMargin - printInfo.rightMargin
+        let textView = NSTextView(frame: NSRect(x: 0, y: 0, width: printableWidth, height: printInfo.paperSize.height))
+        textView.string = text
+        textView.isEditable = false
+        textView.isSelectable = true
+        textView.font = NSFont.monospacedSystemFont(ofSize: 11, weight: .regular)
+        textView.textContainer?.widthTracksTextView = true
+        textView.textContainer?.containerSize = NSSize(
+            width: printableWidth,
+            height: CGFloat.greatestFiniteMagnitude
+        )
+        textView.sizeToFit()
+
+        let printOperation = NSPrintOperation(view: textView, printInfo: printInfo)
+        printOperation.showsPrintPanel = true
+        printOperation.showsProgressPanel = true
+        printOperation.jobTitle = "Medical Video Review — \(title)"
+
+        if let window = NSApp.keyWindow {
+            printOperation.runModal(for: window, delegate: nil, didRun: nil, contextInfo: nil)
+        } else {
+            printOperation.run()
+        }
     }
 
     func statsGoToHub() {
@@ -203,7 +363,7 @@ final class ProjectStore: ObservableObject {
                     folders.append(ProjectBatchFolder(
                         id: name,
                         displayTitle: ProjectBatchFolderFormat.displayTitle(for: name),
-                        projectCount: max(count, hasActivity ? 1 : 0),
+                        projectCount: count,
                         sortKey: name
                     ))
                 }
@@ -501,7 +661,8 @@ final class ProjectStore: ObservableObject {
         blogURL: String,
         language: ProjectLanguage = .en,
         autoPipeline: AutoPipelineOptions = .full(includeVideos: true),
-        openInBrowse: Bool = false
+        openInBrowse: Bool = false,
+        runPipelineInBackground: Bool = false
     ) async throws {
         if ModocConfig.needsSetup {
             showSetupSheet = true
@@ -540,14 +701,18 @@ final class ProjectStore: ObservableObject {
         let project = VideoProject(id: folder.path, folderURL: folder, manifest: manifest)
 
         if autoPipeline.hasAnyStep {
-            pipelineFocusedProjectID = folder.path
-            appSection = .pipeline
-            try await runAutoPipeline(project, options: autoPipeline)
+            if runPipelineInBackground {
+                startBackgroundAutoPipeline(project, options: autoPipeline)
+            } else {
+                pipelineFocusedProjectID = folder.path
+                appSection = .pipeline
+                try await runAutoPipeline(project, options: autoPipeline)
 
-            if let updated = loadProject(from: folder), updated.hasScript {
-                var finalManifest = updated.manifest
-                finalManifest.title = VideoProject.title(from: updated.loadScript())
-                try saveManifest(finalManifest, folder: folder)
+                if let updated = loadProject(from: folder), updated.hasScript {
+                    var finalManifest = updated.manifest
+                    finalManifest.title = VideoProject.title(from: updated.loadScript())
+                    try saveManifest(finalManifest, folder: folder)
+                }
             }
         } else if openInBrowse {
             pipelineFocusedProjectID = nil
@@ -560,9 +725,41 @@ final class ProjectStore: ObservableObject {
         refreshProjects()
     }
 
+    func openActivePipelineProject() {
+        guard let id = activePipelineProjectID else { return }
+        guard let project = projects.first(where: { $0.id == id })
+            ?? loadProject(from: URL(fileURLWithPath: id)) else { return }
+        openProjectInBrowse(project)
+    }
+
+    private func startBackgroundAutoPipeline(_ project: VideoProject, options: AutoPipelineOptions) {
+        Task { @MainActor in
+            defer { refreshProjects() }
+            do {
+                try await runAutoPipeline(project, options: options)
+                if let updated = loadProject(from: project.folderURL), updated.hasScript {
+                    var finalManifest = updated.manifest
+                    finalManifest.title = VideoProject.title(from: updated.loadScript())
+                    try? saveManifest(finalManifest, folder: project.folderURL)
+                }
+            } catch {
+                // runWorkflowStep already records failure on the project manifest.
+            }
+        }
+    }
+
     /// Run pipeline steps in workflow order. Skips steps that are already complete.
     func runAutoPipeline(_ project: VideoProject, options: AutoPipelineOptions) async throws {
         guard !pipeline.isRunning else { throw AutoPipelineError.alreadyRunning }
+
+        autoPipelineRunDepth += 1
+        activePipelineProjectID = project.id
+        defer {
+            autoPipelineRunDepth -= 1
+            if autoPipelineRunDepth == 0, activePipelineProjectID == project.id {
+                activePipelineProjectID = nil
+            }
+        }
 
         let steps = options.pendingSteps(for: project)
         guard !steps.isEmpty else { throw AutoPipelineError.nothingToRun }
@@ -576,6 +773,13 @@ final class ProjectStore: ObservableObject {
     }
 
     func runWorkflowStep(_ project: VideoProject, step: PipelineService.PipelineStep) async throws {
+        activePipelineProjectID = project.id
+        defer {
+            if autoPipelineRunDepth == 0, activePipelineProjectID == project.id {
+                activePipelineProjectID = nil
+            }
+        }
+
         var manifest = project.manifest
         manifest.lastError = nil
 
@@ -629,6 +833,8 @@ final class ProjectStore: ObservableObject {
             break
         case .rewriteScriptLine:
             break
+        case .reviewFinishedVideo:
+            break
         }
 
         try saveManifest(manifest, folder: project.folderURL)
@@ -672,6 +878,8 @@ final class ProjectStore: ObservableObject {
                 } else {
                     manifest.phase = .promptsReview
                 }
+            case .reviewFinishedVideo:
+                break
             }
 
             try saveManifest(manifest, folder: project.folderURL)
@@ -768,6 +976,8 @@ final class ProjectStore: ObservableObject {
             return (.script, "Script verification", nil)
         case .rewriteScriptLine(let id):
             return (.script, "Rewrite line \(id)", nil)
+        case .reviewFinishedVideo:
+            return (.clip, "Finished video review", nil)
         }
     }
 
@@ -1000,6 +1210,12 @@ final class ProjectStore: ObservableObject {
         }
     }
 
+    func batchPendingURLCount(for dateFolderID: String) -> Int {
+        guard dateFolderID != ProjectBatchFolder.legacyID else { return 0 }
+        let folder = ModocConfig.projectsURL.appendingPathComponent(dateFolderID, isDirectory: true)
+        return BatchStateReader.pendingURLCount(in: folder)
+    }
+
     func batchNeedsResume(for dateFolderID: String) -> Bool {
         guard dateFolderID != ProjectBatchFolder.legacyID else { return false }
         let folder = ModocConfig.projectsURL.appendingPathComponent(dateFolderID, isDirectory: true)
@@ -1063,6 +1279,17 @@ final class ProjectStore: ObservableObject {
         let f = DateFormatter()
         f.dateFormat = "yyyyMMdd-HHmm"
         return f.string(from: Date())
+    }
+}
+
+enum FinishedVideoReviewError: LocalizedError {
+    case missingVideo
+
+    var errorDescription: String? {
+        switch self {
+        case .missingVideo:
+            return "No video in end-products inbox."
+        }
     }
 }
 

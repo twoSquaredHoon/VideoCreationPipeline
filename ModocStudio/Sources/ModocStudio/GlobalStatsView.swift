@@ -133,8 +133,9 @@ struct GlobalStatsView: View {
                     }
                 }
             }
-            .padding(32)
+            .padding(24)
             .frame(maxWidth: 920, alignment: .leading)
+            .frame(maxWidth: .infinity)
         }
     }
 
@@ -227,8 +228,9 @@ struct GlobalStatsView: View {
                     }
                 }
             }
-            .padding(32)
+            .padding(24)
             .frame(maxWidth: 920, alignment: .leading)
+            .frame(maxWidth: .infinity)
         }
     }
 
@@ -303,8 +305,9 @@ struct GlobalStatsView: View {
 
                 timeContent
             }
-            .padding(32)
+            .padding(24)
             .frame(maxWidth: 920, alignment: .leading)
+            .frame(maxWidth: .infinity)
         }
     }
 

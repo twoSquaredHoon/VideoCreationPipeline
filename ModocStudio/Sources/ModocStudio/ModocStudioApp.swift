@@ -65,7 +65,7 @@ struct ModocStudioApp: App {
         WindowGroup {
             ContentView()
                 .environmentObject(store)
-                .frame(minWidth: 960, minHeight: 640)
+                .frame(minWidth: 800, minHeight: 560)
                 .onReceive(NotificationCenter.default.publisher(for: .modocOpenExistingProject)) { _ in
                     store.openExistingProject()
                 }
