@@ -23,6 +23,7 @@ from script_to_clips import (
     validate_clip_dict,
 )
 from signs_clip_prompt import clip_sort_key
+from prompt_store import require_str
 from visual_cast import get_visual_cast, language_from_script_header
 
 CUSTOM_ID_RE = re.compile(r"^custom_(\d+)$")
@@ -79,43 +80,18 @@ def generate_custom_clip(
     clip_number: int,
 ) -> tuple[dict, str]:
     selected_block = "\n".join(selected_lines)
-    user = f"""
-You create ONE custom video clip for a parenting health short.
-
-{cast_bible}
-
-FULL SCRIPT (context):
----
-{full_script}
----
-
-SELECTED LINES (this clip must visualize ONLY what these lines say):
----
-{selected_block}
----
-
-Output valid JSON only:
-{{
-  "description": "one sentence — what the viewer should see",
-  "detailed_prompt": "SUBJECT / SETTING / ACTION / MOOD / CAMERA / LIGHTING / STYLE",
-  "veo_prompt": "single paragraph for Veo, cinematic 4K, no on-screen text, exact child age from cast",
-  "duration_seconds": 4 or 6
-}}
-
-Rules:
-- id will be "{clip_id}" / label "CUSTOM CLIP {clip_number}"
-- Medically accurate to the selected lines only; do not invent facts
-- Match cast bible age and appearance exactly
-- duration_seconds: 4 for a single short beat; 6 for a richer scene
-"""
+    user = require_str("custom_clip_user").format(
+        cast_bible=cast_bible,
+        full_script=full_script,
+        selected_block=selected_block,
+        clip_id=clip_id,
+        clip_number=clip_number,
+    )
     raw = run_gemini_text(
         client,
         model=model,
         user=user,
-        system=(
-            "You write precise AI video prompts for parenting videos. "
-            "Output valid JSON only."
-        ),
+        system=require_str("custom_clip_system"),
         json_mode=True,
         max_retries=3,
     )

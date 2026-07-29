@@ -6,6 +6,17 @@ import re
 from dataclasses import dataclass
 
 from language_config import normalize_language
+from prompt_store import require_dict, require_str
+
+
+def _cast_templates() -> dict[str, dict[str, str]]:
+    raw = require_dict("visual_cast")
+    out: dict[str, dict[str, str]] = {}
+    for lang, template in raw.items():
+        if not isinstance(template, dict):
+            raise ValueError(f"visual_cast[{lang}] must be an object in video prompts config")
+        out[lang] = {str(k): str(v) for k, v in template.items()}
+    return out
 
 
 @dataclass(frozen=True)
@@ -43,28 +54,15 @@ class VisualCast:
 
     def format_bible(self) -> str:
         age_rules = format_age_rules(self.age)
-        return f"""
-VISUAL CAST BIBLE (use in EVERY clip that shows people — copy verbatim; do not invent new faces):
-
-Target market: {self.market}
-
-{age_rules}
-
-CHILD (same individual in all clips — age and developmental stage are NON-NEGOTIABLE):
-{self.child}
-
-PRIMARY PARENT (same individual in all clips):
-{self.parent}
-
-SECOND PARENT (only if a second adult is needed — same individuals every time):
-{self.parent_secondary}
-
-DEFAULT SETTINGS:
-{self.setting}
-
-CAST CONSISTENCY RULES:
-{self.consistency_rules}
-""".strip()
+        return require_str("cast_bible_template").format(
+            market=self.market,
+            age_rules=age_rules,
+            child=self.child,
+            parent=self.parent,
+            parent_secondary=self.parent_secondary,
+            setting=self.setting,
+            consistency_rules=self.consistency_rules,
+        )
 
 
 def format_age_rules(age: ChildAgeProfile) -> str:
@@ -189,7 +187,7 @@ def extract_child_age(script: str) -> str:
 
 
 def _build_child_description(profile: ChildAgeProfile, lang: str) -> str:
-    template = _CAST_TEMPLATES[lang]
+    template = _cast_templates()[lang]
     features = template["child_features"]
 
     if profile.is_infant:
@@ -218,7 +216,7 @@ def _build_child_description(profile: ChildAgeProfile, lang: str) -> str:
 
 
 def _setting_for_age(profile: ChildAgeProfile, lang: str) -> str:
-    base = _CAST_TEMPLATES[lang]["setting"]
+    base = _cast_templates()[lang]["setting"]
     if profile.is_infant:
         return (
             f"{base} For this infant: nursery with crib, changing table, soft blankets, "
@@ -228,7 +226,7 @@ def _setting_for_age(profile: ChildAgeProfile, lang: str) -> str:
 
 
 def _consistency_for_age(profile: ChildAgeProfile, lang: str) -> str:
-    base = _CAST_TEMPLATES[lang]["consistency"]
+    base = _cast_templates()[lang]["consistency"]
     age_line = (
         f"- AGE IS MANDATORY: every clip must show {profile.label} — same developmental "
         f"stage ({profile.category.replace('_', ' ')}) in every shot. Never age-up or age-down.\n"
@@ -236,100 +234,9 @@ def _consistency_for_age(profile: ChildAgeProfile, lang: str) -> str:
     return age_line + base
 
 
-_CAST_TEMPLATES: dict[str, dict[str, str]] = {
-    "en": {
-        "market": "United States — English-speaking audience",
-        "child_features": (
-            "fair to light olive skin, light brown hair, blue-gray eyes"
-        ),
-        "infant_clothing": "a soft pale yellow footed onesie",
-        "toddler_clothing": "a soft gray t-shirt and pull-up diaper visible under shorts",
-        "preschool_clothing": "a colorful soft t-shirt and elastic-waist pants",
-        "school_clothing": "a soft heather-gray t-shirt and navy blue sweatpants",
-        "parent": (
-            "a woman in her early 30s with fair to light olive skin, light brown hair "
-            "in a low ponytail, blue-gray eyes, wearing a soft oatmeal knit sweater "
-            "and dark jeans — warm, concerned expression"
-        ),
-        "parent_secondary": (
-            "a man in his mid-30s with fair skin, short light brown hair, light stubble, "
-            "wearing a dark green henley shirt"
-        ),
-        "setting": (
-            "Suburban American home — soft natural window light; no brand logos"
-        ),
-        "consistency": (
-            "- The child and primary parent must look like the SAME people in every clip "
-            "(identical skin tone, hair color, hair style, and face).\n"
-            "- Reuse the same clothing unless the story beat clearly implies a change — "
-            "still the same people and same age.\n"
-            "- Reflect a typical US family appearance appropriate for English-language "
-            "parenting health content.\n"
-            "- SIGNS clips: if a child appears, use this exact child at this exact age."
-        ),
-    },
-    "ko": {
-        "market": "South Korea — Korean-speaking audience",
-        "child_features": (
-            "East Asian Korean features, dark brown eyes, warm light skin tone"
-        ),
-        "infant_clothing": "a soft white and mint-green footed baby onesie",
-        "toddler_clothing": "a soft pastel hoodie and comfortable pants",
-        "preschool_clothing": "a soft cotton top and comfortable pants",
-        "school_clothing": "a light blue top and gray sleep pants or casual clothes",
-        "parent": (
-            "a Korean woman in her early 30s with straight black shoulder-length hair, "
-            "warm light skin, dark brown eyes, wearing a cream-colored loungewear top — "
-            "calm, attentive expression"
-        ),
-        "parent_secondary": (
-            "a Korean man in his mid-30s with short straight black hair, warm light skin, "
-            "wearing a simple gray crew-neck shirt"
-        ),
-        "setting": (
-            "Modern Korean apartment or home — clean neutral interior, soft daylight, "
-            "minimal clutter, no readable text on walls"
-        ),
-        "consistency": (
-            "- The child and parent must be recognizably the SAME Korean family in every clip.\n"
-            "- Keep identical hair, skin tone, facial features, and age across all clips.\n"
-            "- SIGNS clips: any child shown must match this exact child at this exact age."
-        ),
-    },
-    "es": {
-        "market": "United States — Spanish-speaking Hispanic/Latino audience",
-        "child_features": (
-            "warm medium-brown skin, dark brown eyes, dark brown hair"
-        ),
-        "infant_clothing": "a soft cream footed onesie",
-        "toddler_clothing": "a soft orange t-shirt and comfortable shorts",
-        "preschool_clothing": "a bright soft t-shirt and elastic-waist pants",
-        "school_clothing": "a soft red cotton t-shirt and denim blue jeans",
-        "parent": (
-            "a Latina woman in her early 30s with warm medium-brown skin, dark brown wavy "
-            "hair in a loose ponytail, dark brown eyes, wearing a soft terracotta cardigan "
-            "over a white tee — caring, alert expression"
-        ),
-        "parent_secondary": (
-            "a Latino man in his mid-30s with warm medium-brown skin, short dark hair, "
-            "neatly trimmed beard, wearing a navy blue casual button-down shirt"
-        ),
-        "setting": (
-            "Warm lived-in US Hispanic/Latino household — natural window light; "
-            "no brand logos or readable text"
-        ),
-        "consistency": (
-            "- The child and parent must be the SAME Hispanic/Latino family in every clip.\n"
-            "- Match skin tone, hair, facial features, and age exactly across clips.\n"
-            "- SIGNS clips: any child shown must match this exact child at this exact age."
-        ),
-    },
-}
-
-
 def get_visual_cast(language: str | None, script: str) -> VisualCast:
     lang = normalize_language(language)
-    template = _CAST_TEMPLATES[lang]
+    template = _cast_templates()[lang]
     age = extract_child_age_profile(script)
     child = _build_child_description(age, lang)
     return VisualCast(

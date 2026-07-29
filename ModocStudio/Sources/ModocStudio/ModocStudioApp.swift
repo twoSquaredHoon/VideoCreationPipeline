@@ -107,6 +107,9 @@ struct ModocStudioApp: App {
                 Button("Set Up Environment…") {
                     store.showSetupSheet = true
                 }
+                Button("Edit Video Prompts…") {
+                    store.enterPrompts()
+                }
             }
         }
     }

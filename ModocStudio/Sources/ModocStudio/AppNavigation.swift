@@ -6,6 +6,7 @@ enum AppSection: String, Hashable {
     case pipeline
     case stats
     case videoReview
+    case prompts
 }
 
 enum StatsSubsection: String, Hashable {
@@ -84,6 +85,15 @@ struct HomeView: View {
                     tint: .purple
                 ) {
                     store.enterVideoReview()
+                }
+
+                HomeDestinationCard(
+                    title: "Prompts",
+                    subtitle: "Edit all video-creation prompts and cast presets (saved to config)",
+                    systemImage: "text.alignleft",
+                    tint: .indigo
+                ) {
+                    store.enterPrompts()
                 }
 
                 HomeDestinationCard(

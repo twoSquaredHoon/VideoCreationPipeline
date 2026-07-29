@@ -15,6 +15,7 @@ from google.genai import types
 from gemini_util import PROJECT_ROOT, get_client
 from path_hints import format_script_not_found
 from prompts import clip_decision_prompt, clip_detail_json_instruction
+from prompt_store import require_dict, require_str
 from derived_clips import apply_derived_clips, format_clip_prompts_text
 from explain_clip_prompt import is_explain_clip_id
 from signs_clip_prompt import (
@@ -135,30 +136,12 @@ def decide_clips(
         client,
         model=model,
         user=user,
-        system=(
-            "You plan visuals for short parenting videos. Stay faithful to the script. "
-            "Use the visual cast bible for every person shown. "
-            "Child age from the cast bible is mandatory — infants must look like infants."
-        ),
+        system=require_str("clip_decision_system"),
     )
 
 
 def single_clip_prompt(cast_bible: str) -> str:
-    return f"""
-You write one AI video generation prompt for a parenting health video clip.
-
-{cast_bible}
-
-Output valid JSON only:
-{{"id": "...", "label": "...", "detailed_prompt": "...", "veo_prompt": "...", "duration_seconds": 6}}
-
-Rules for veo_prompt: one paragraph, cinematic realistic 4K, natural colors, no text on screen
-(except SIGNS clip), copy exact child/parent appearance AND EXACT AGE from the cast bible,
-open veo_prompt with the child's age (e.g. "7-month-old infant baby"), no vague words.
-duration_seconds: 4 for hook and cta; 6 for body_1, body_2, signs, relief.
-SIGNS clips (signs_1, signs_2, …): one clip per warning sign; each is a single wordless
-presentation image on a clean background; no text on screen.
-"""
+    return require_str("single_clip_prompt").format(cast_bible=cast_bible)
 
 
 def parse_clip_decisions(clip_decisions: str) -> list[tuple[str, str, str]]:
@@ -193,9 +176,26 @@ def parse_clip_decisions(clip_decisions: str) -> list[tuple[str, str, str]]:
 
 
 def default_duration(clip_id: str) -> int:
-    if clip_id in ("hook", "cta") or is_signs_clip_id(clip_id) or is_explain_clip_id(clip_id):
-        return 4
-    return 6
+    durations = require_dict("clip_durations")
+    if clip_id in ("hook", "cta"):
+        return int(durations.get(clip_id, 4))
+    if is_signs_clip_id(clip_id):
+        return int(durations.get("signs", 4))
+    if is_explain_clip_id(clip_id):
+        return int(durations.get("explain", 4))
+    if clip_id.startswith("body_"):
+        return int(durations.get("body", 6))
+    if clip_id == "relief":
+        return int(durations.get("relief", 6))
+    if clip_id.startswith("custom_"):
+        return int(durations.get("custom", 6))
+    return int(durations.get("body", 6))
+
+
+def _allowed_durations() -> set[int]:
+    durations = require_dict("clip_durations")
+    allowed = durations.get("allowed", [4, 6, 8])
+    return {int(x) for x in allowed}
 
 
 def validate_clip_dict(clip: dict) -> dict:
@@ -204,7 +204,7 @@ def validate_clip_dict(clip: dict) -> dict:
     if not clip_id or not veo_prompt:
         raise RuntimeError(f"Each clip needs id and veo_prompt: {clip}")
     duration = int(clip.get("duration_seconds", default_duration(str(clip_id))))
-    if duration not in (4, 6, 8):
+    if duration not in _allowed_durations():
         duration = default_duration(str(clip_id))
     return {
         "id": str(clip_id),
@@ -247,7 +247,7 @@ def build_veo_prompts_one_by_one(
             client,
             model=model,
             user=user,
-            system="Output JSON only.",
+            system=require_str("single_clip_system"),
             json_mode=True,
             max_retries=2,
         )
@@ -268,11 +268,7 @@ def build_veo_prompts(
             client,
             model=model,
             user=user,
-            system=(
-                "You write precise AI video prompts. Output valid JSON only. "
-                "Every person must match the visual cast bible exactly. "
-                "State the child's exact age in every veo_prompt opening sentence."
-            ),
+            system=require_str("clip_detail_system"),
             json_mode=True,
             max_retries=3,
         )

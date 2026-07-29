@@ -17,6 +17,7 @@ from google.genai import types
 from gemini_util import PROJECT_ROOT, get_client
 from language_config import normalize_language
 from prompts import FINISHED_VIDEO_MEDICAL_REVIEW_PROMPT
+from prompt_store import require_str
 from script_to_clips import extract_response_text
 
 DEFAULT_MODEL = "gemini-2.5-flash"
@@ -249,10 +250,7 @@ def review_video_file(
         contents=[uploaded, user_text],
         config=types.GenerateContentConfig(
             temperature=0.2,
-            system_instruction=(
-                "You are a careful pediatric visual medical reviewer for parent-facing videos. "
-                "Watch the full finished export. Describe what you see and hear. Output valid JSON only."
-            ),
+            system_instruction=require_str("finished_video_review_system"),
             response_mime_type="application/json",
         ),
     )

@@ -26,6 +26,7 @@ struct ContentView: View {
             case .time: return "Pipeline Time"
             }
         case .videoReview: return "Video Review"
+        case .prompts: return "Prompts"
         }
     }
 
@@ -45,6 +46,9 @@ struct ContentView: View {
 
             VideoReviewView()
                 .keepAliveSection(active: store.appSection == .videoReview)
+
+            PromptsEditorView()
+                .keepAliveSection(active: store.appSection == .prompts)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .clipped()

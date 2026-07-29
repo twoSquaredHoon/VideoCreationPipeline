@@ -1,10 +1,11 @@
-"""Language settings for script generation and TTS."""
+"""Language settings for script generation and TTS — prompts from config/video_prompts.json."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 
-from prompts import SCRIPT_RULES, SCRIPT_RULES_ES, SCRIPT_RULES_KO
+from prompt_store import lang_str, require_dict
+from prompts import script_rules
 
 SUPPORTED_LANGUAGES = frozenset({"en", "ko", "es"})
 
@@ -18,60 +19,6 @@ class LanguageSettings:
     tts_language_code: str
     tts_voice: str
     uses_syllable_pacing: bool
-
-
-LANGUAGES: dict[str, LanguageSettings] = {
-    "en": LanguageSettings(
-        code="en",
-        label="English",
-        script_rules=SCRIPT_RULES,
-        script_system=(
-            "You turn parenting blog posts into short spoken video scripts. "
-            "Medical accuracy is mandatory; never add claims not in the source. "
-            "Write the script in English. "
-            "CRITICAL FOR VIDEO: In BODY, use one sentence per line. Include EXPLAIN lines "
-            "(dosing/home care) and a SIGNS block (intro line + one sign per line) when the blog "
-            "includes those facts."
-        ),
-        tts_language_code="en-US",
-        tts_voice="Charon",
-        uses_syllable_pacing=False,
-    ),
-    "ko": LanguageSettings(
-        code="ko",
-        label="Korean",
-        script_rules=SCRIPT_RULES_KO,
-        script_system=(
-            "You turn parenting blog posts into short spoken video scripts. "
-            "Medical accuracy is mandatory; never add claims not in the source. "
-            "Write the entire spoken script in natural Korean (한국어). "
-            "If the blog is in English, translate faithfully — do not add medical claims. "
-            "CRITICAL FOR VIDEO: In BODY, use one sentence per line. Include EXPLAIN lines "
-            "(dosing/home care) and a SIGNS block (intro line + one sign per line) when the blog "
-            "includes those facts."
-        ),
-        tts_language_code="ko-KR",
-        tts_voice="Kore",
-        uses_syllable_pacing=True,
-    ),
-    "es": LanguageSettings(
-        code="es",
-        label="Spanish",
-        script_rules=SCRIPT_RULES_ES,
-        script_system=(
-            "You turn parenting blog posts into short spoken video scripts. "
-            "Medical accuracy is mandatory; never add claims not in the source. "
-            "Write the entire spoken script in natural Spanish (español). "
-            "If the blog is in English, translate faithfully — do not add medical claims. "
-            "CRITICAL FOR VIDEO: In BODY, use one sentence per line. Include EXPLAIN lines "
-            "(dosing/home care) and a SIGNS block (intro line + one sign per line) when the blog "
-            "includes those facts — the video pipeline requires this structure."
-        ),
-        tts_language_code="es-US",
-        tts_voice="Aoede",
-        uses_syllable_pacing=False,
-    ),
-}
 
 
 def normalize_language(code: str | None) -> str:
@@ -90,4 +37,43 @@ def normalize_language(code: str | None) -> str:
 
 
 def get_language(code: str | None) -> LanguageSettings:
-    return LANGUAGES[normalize_language(code)]
+    lang = normalize_language(code)
+    voices = require_dict("tts_voices")
+    if lang not in voices or not isinstance(voices[lang], dict):
+        raise ValueError(f"Missing tts_voices[{lang}] in video prompts config")
+    voice_cfg = voices[lang]
+    return LanguageSettings(
+        code=lang,
+        label=str(voice_cfg.get("label") or lang),
+        script_rules=script_rules(lang),
+        script_system=lang_str("script_system", lang),
+        tts_language_code=str(voice_cfg.get("language_code") or ""),
+        tts_voice=str(voice_cfg.get("voice") or ""),
+        uses_syllable_pacing=bool(voice_cfg.get("uses_syllable_pacing", False)),
+    )
+
+
+# Lazy mapping for callers that still iterate LANGUAGES — built on access.
+class _LanguagesProxy(dict):
+    def __getitem__(self, key: str) -> LanguageSettings:
+        return get_language(key)
+
+    def items(self):
+        for code in ("en", "ko", "es"):
+            yield code, get_language(code)
+
+    def keys(self):
+        return ("en", "ko", "es")
+
+    def values(self):
+        for code in ("en", "ko", "es"):
+            yield get_language(code)
+
+    def __contains__(self, key: object) -> bool:
+        return key in SUPPORTED_LANGUAGES
+
+    def __iter__(self):
+        return iter(("en", "ko", "es"))
+
+
+LANGUAGES = _LanguagesProxy()

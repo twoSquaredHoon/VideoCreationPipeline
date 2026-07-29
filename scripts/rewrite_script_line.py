@@ -11,6 +11,7 @@ from pathlib import Path
 from gemini_util import get_client
 from language_config import get_language, normalize_language
 from prompts import SCRIPT_LINE_REWRITE_PROMPT
+from prompt_store import require_str
 from script_lines import find_spoken_line, replace_script_line
 from script_to_clips import run_gemini_text
 
@@ -74,14 +75,8 @@ ORIGINAL BLOG ARTICLE:
 """
     client = get_client()
     is_hook = section.upper() == "HOOK"
-    system = (
-        "You rewrite one spoken script line. "
-        + (
-            "HOOK: keep it punchy and attention-grabbing; only fix false medical claims. "
-            if is_hook
-            else "BODY/RELIEF/CTA: must be medically accurate per the article. "
-        )
-        + "Output only the new line text, nothing else."
+    system = require_str(
+        "script_line_rewrite_system_hook" if is_hook else "script_line_rewrite_system_body"
     )
     raw = run_gemini_text(
         client,

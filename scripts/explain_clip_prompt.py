@@ -6,10 +6,18 @@ import json
 import re
 from pathlib import Path
 
+from prompt_store import require_dict
 from signs_clip_prompt import clip_sort_key, is_signs_clip_id
 from visual_cast import VisualCast, get_visual_cast, language_from_script_header
 
-EXPLAIN_CLIP_SECONDS = 4
+
+def _explain_config() -> dict:
+    return require_dict("explain")
+
+
+def explain_clip_seconds() -> int:
+    return int(_explain_config().get("clip_seconds", 4))
+
 
 SIGNS_INTRO_RE = re.compile(
     r"(?:watch for|warning signs?|serious signs?|danger signs?|"
@@ -154,25 +162,20 @@ def build_one_explain_clip(index: int, bullet: str, *, cast: VisualCast) -> dict
     visual = explain_line_to_visual(bullet, cast=cast)
     clip_id = explain_clip_id(index)
     label = f"EXPLAIN CLIP {index}"
-
-    veo = (
-        f"Cinematic 4K realistic footage. Warm calm instructional parenting health scene. "
-        f"NO text, NO words, NO letters, NO captions anywhere on screen. "
-        f"{visual}. "
-        f"Cast consistency — child: {cast.child} Parent: {cast.parent}. "
-        f"Natural colors, gentle handheld or static shot, soft daylight. "
-        f"{EXPLAIN_CLIP_SECONDS} seconds."
+    seconds = explain_clip_seconds()
+    cfg = _explain_config()
+    veo = str(cfg["veo_template"]).format(
+        visual=visual,
+        child=cast.child,
+        parent=cast.parent,
+        seconds=seconds,
     )
-
-    detailed = (
-        f"SUBJECT: {cast.child}; {cast.parent}.\n"
-        f"SETTING: {cast.setting}\n"
-        f"ACTION: {visual}\n"
-        f"Script line: {bullet}\n"
-        "MOOD: Warm\n"
-        "CAMERA: Gentle handheld or static\n"
-        "LIGHTING: Soft natural daylight\n"
-        "STYLE: Cinematic realistic. 4K. No text on screen."
+    detailed = str(cfg["detailed_template"]).format(
+        child=cast.child,
+        parent=cast.parent,
+        setting=cast.setting,
+        visual=visual,
+        bullet=bullet,
     )
 
     return {
@@ -180,7 +183,7 @@ def build_one_explain_clip(index: int, bullet: str, *, cast: VisualCast) -> dict
         "label": label,
         "detailed_prompt": detailed,
         "veo_prompt": veo,
-        "duration_seconds": EXPLAIN_CLIP_SECONDS,
+        "duration_seconds": seconds,
         "script_line": bullet,
     }
 

@@ -106,6 +106,10 @@ final class ProjectStore: ObservableObject {
         refreshEndProductSelection()
     }
 
+    func enterPrompts() {
+        appSection = .prompts
+    }
+
     func refreshEndProductSelection() {
         let inbox = EndProducts.listInboxItems()
         if let id = videoReviewSelectedItemID,

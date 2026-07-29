@@ -16,6 +16,7 @@ from google.genai import types
 from gemini_util import PROJECT_ROOT, get_client
 from language_config import get_language, normalize_language
 from path_hints import format_clips_dir_not_found, format_script_not_found
+from prompt_store import require_dict
 
 DEFAULT_TTS_MODEL = "gemini-2.5-flash-preview-tts"
 OUTPUT_BASE = PROJECT_ROOT / "output" / "voiceovers"
@@ -25,14 +26,19 @@ SPEECH_LABEL_PREFIX_RE = re.compile(
     r"^(?:EXPLAIN(?:\s+CLIP\s+\d+)?|SIGNS(?:\s+CLIP\s+\d+)?)\s*:\s*",
     re.IGNORECASE,
 )
-# Typical Veo clip lengths used by script_to_clips (seconds per clip type).
-DEFAULT_CLIP_SECONDS = {
-    "hook": 4,
-    "body": 6,
-    "signs": 6,
-    "relief": 6,
-    "cta": 4,
-}
+
+
+def _default_clip_seconds() -> dict[str, int]:
+    durations = require_dict("clip_durations")
+    return {
+        "hook": int(durations.get("hook", 4)),
+        "body": int(durations.get("body", 6)),
+        "signs": int(durations.get("signs", 4)),
+        "relief": int(durations.get("relief", 6)),
+        "cta": int(durations.get("cta", 4)),
+    }
+
+
 WPM_REFERENCE = {"slow": 130, "normal": 150, "fast": 175, "very_fast": 205}
 CPM_REFERENCE = {"slow": 280, "normal": 340, "fast": 400, "very_fast": 460}
 PACE_ORDER = ["slow", "normal", "fast", "very_fast"]
@@ -112,6 +118,7 @@ def load_video_duration_from_clips(clips_dir: Path) -> int | None:
 
 def estimate_video_seconds(speech_text: str) -> int:
     """Estimate total video length when clips.json is not available yet."""
+    secs = _default_clip_seconds()
     words = len(speech_text.split())
     lines = [line for line in speech_text.splitlines() if line.strip()]
     # Roughly hook + 1–2 body beats + relief + cta (4–5 clips at 4–6s each).
@@ -129,11 +136,11 @@ def estimate_video_seconds(speech_text: str) -> int:
         ]
     )
     from_clips = (
-        DEFAULT_CLIP_SECONDS["hook"]
-        + DEFAULT_CLIP_SECONDS["relief"]
-        + DEFAULT_CLIP_SECONDS["cta"]
-        + max(1, clip_count - 4) * DEFAULT_CLIP_SECONDS["body"]
-        + sign_lines * DEFAULT_CLIP_SECONDS["signs"]
+        secs["hook"]
+        + secs["relief"]
+        + secs["cta"]
+        + max(1, clip_count - 4) * secs["body"]
+        + sign_lines * secs["signs"]
     )
     # Shorter scripts → shorter videos; cap near social length.
     from_words = max(22, min(36, int(words * 0.32)))
@@ -202,77 +209,21 @@ def build_tts_prompt(
 ) -> str:
     lang = get_language(language)
     target_int = max(15, int(round(target_seconds)))
-
-    if lang.code == "ko":
-        pace_hints = {
-            "slow": "천천히 또박또박 읽어 주세요.",
-            "normal": "자연스러운 대화 속도로 읽어 주세요.",
-            "fast": (
-                "숏폼 영상에 맞게 빠르고 또렷한 속도로 읽어 주세요. "
-                "에너지는 살리되, 급하게 뭉개지 않게."
-            ),
-            "very_fast": (
-                "릴스·틱톡 나레이션처럼 눈에 띄게 빠른 속도로 읽어 주세요. "
-                "모든 발음은 분명하게, 문장 사이 쉼은 최소화."
-            ),
-        }
-        pace_hint = pace_hints.get(pace, pace_hints["fast"])
-        return (
-            "다음 육아 건강 숏폼 영상 대본을 한국어로 낭독해 주세요. "
-            "따뜻하고 차분하며 신뢰감 있는 톤 — 소아과 의사가 부모에게 말하는 것처럼. "
-            f"{pace_hint} "
-            f"중요: 전체 낭독은 약 {target_int}초 안에 끝나야 합니다 "
-            f"({target_int}초 분량의 영상과 맞춤). "
-            "대본을 정확히 읽고, 단어를 추가하거나 빼지 마세요.\n\n"
-            f"{speech_text}"
-        )
-
-    if lang.code == "es":
-        pace_hints = {
-            "slow": "Habla despacio y con claridad.",
-            "normal": "Habla a un ritmo conversacional y constante.",
-            "fast": (
-                "Habla con un ritmo ágil y claro, típico de un video corto en redes sociales. "
-                "Mantén la energía sin sonar apresurado."
-            ),
-            "very_fast": (
-                "Habla notablemente más rápido, como en un Reels o TikTok de 30 segundos. "
-                "Cada palabra debe ser clara; minimiza las pausas entre frases."
-            ),
-        }
-        pace_hint = pace_hints.get(pace, pace_hints["fast"])
-        return (
-            "Lee en voz alta el siguiente guion de video sobre crianza y salud infantil. "
-            "Suena cálido, calmado y confiable — como un pediatra hablando con padres. "
-            f"{pace_hint} "
-            f"IMPORTANTE: Todo el guion debe terminar en unos {target_int} segundos "
-            f"para coincidir con la duración del video ({target_int}s de metraje). "
-            "Lee cada línea exactamente; no agregues ni omitas palabras.\n\n"
-            f"{speech_text}"
-        )
-
-    pace_hints = {
-        "slow": "Speak slowly and clearly.",
-        "normal": "Speak at a steady conversational pace.",
-        "fast": (
-            "Speak at a brisk, clear pace — typical for a short social media video. "
-            "Keep energy up without sounding rushed or sloppy."
-        ),
-        "very_fast": (
-            "Speak noticeably faster with tight pacing, as in a 30-second Reels or TikTok "
-            "voiceover. Every word must stay clear, but minimize pauses between sentences."
-        ),
-    }
-    pace_hint = pace_hints.get(pace, pace_hints["fast"])
-
-    return (
-        "Read the following parenting video script aloud for social media. "
-        "Sound warm, calm, and trustworthy — like a doctor speaking to parents. "
-        f"{pace_hint} "
-        f"IMPORTANT: The entire script must finish in about {target_int} seconds "
-        f"to match the video length ({target_int}s of footage). "
-        "Read every line exactly; do not add or skip words.\n\n"
-        f"{speech_text}"
+    tts = require_dict("tts")
+    if lang.code not in tts or not isinstance(tts[lang.code], dict):
+        raise RuntimeError(f"Missing tts[{lang.code}] in video prompts config")
+    cfg = tts[lang.code]
+    pace_hints = cfg.get("pace_hints") or {}
+    if not isinstance(pace_hints, dict):
+        raise RuntimeError(f"tts[{lang.code}].pace_hints must be an object")
+    pace_hint = str(pace_hints.get(pace) or pace_hints.get("fast") or "")
+    template = str(cfg.get("template") or "")
+    if not template.strip():
+        raise RuntimeError(f"tts[{lang.code}].template is empty in video prompts config")
+    return template.format(
+        pace_hint=pace_hint,
+        target_seconds=target_int,
+        speech_text=speech_text,
     )
 
 

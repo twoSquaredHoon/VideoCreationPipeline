@@ -14,6 +14,7 @@ from blog_to_script import fetch_blog_text
 from gemini_util import get_client
 from language_config import get_language, normalize_language
 from prompts import SCRIPT_VERIFICATION_PROMPT
+from prompt_store import require_str
 from script_lines import format_script_for_review, load_script_body, parse_script_lines
 from script_to_clips import extract_response_text, run_gemini_text
 
@@ -141,11 +142,7 @@ VIDEO SCRIPT (each line has a line_id tag — use these in script_line_checks):
         client,
         model=model,
         user=user,
-        system=(
-            "You are a strict medical fact-checker for parent-facing video scripts. "
-            "Be lenient on HOOK lines (attention-grabbing tone is fine); be strict on BODY, RELIEF, and CTA. "
-            "Output valid JSON only."
-        ),
+        system=require_str("script_verification_system"),
         json_mode=True,
         max_retries=3,
     )

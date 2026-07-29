@@ -6,9 +6,17 @@ import json
 import re
 from pathlib import Path
 
+from prompt_store import require_dict
 from visual_cast import VisualCast, get_visual_cast, language_from_script_header
 
-SIGNS_CLIP_SECONDS = 4
+
+def _signs_config() -> dict:
+    return require_dict("signs")
+
+
+def signs_clip_seconds() -> int:
+    return int(_signs_config().get("clip_seconds", 4))
+
 
 SIGNS_INTRO_RE = re.compile(
     r"(?:watch for|warning signs?|serious signs?|danger signs?|"
@@ -211,35 +219,19 @@ def build_one_signs_clip(
     visual = bullet_to_visual(bullet, child_description=cast.child, cast=cast)
     clip_id = signs_clip_id(index)
     label = f"SIGNS CLIP {index}"
-
-    veo = (
-        "Cinematic 4K. Single wordless presentation visual for a parent health video. "
-        "NO text, NO words, NO letters, NO captions anywhere. "
-        "Soft warm off-white background, one centered rounded card filling most of the frame, "
-        "static camera, even bright lighting, tense-but-clear mood. "
-        f"The card shows only this one realistic image: {visual}. "
-        f"Cast consistency: {cast.child} "
-        "Clean minimalist slide look, not graphic, not a medical diagram. "
-        f"{SIGNS_CLIP_SECONDS} seconds."
+    seconds = signs_clip_seconds()
+    cfg = _signs_config()
+    veo = str(cfg["veo_template"]).format(
+        visual=visual, child=cast.child, seconds=seconds
     )
-
-    detailed = (
-        f"SUBJECT: One wordless presentation card (no text).\n"
-        f"SETTING: Minimal slide, soft warm off-white background.\n"
-        f"ACTION: Single card showing: {visual}.\n"
-        f"Script line: {bullet}\n"
-        "MOOD: Tense\n"
-        "CAMERA: Static shot\n"
-        "LIGHTING: Bright, even\n"
-        "STYLE: Cinematic realistic. 4K. No text on screen."
-    )
+    detailed = str(cfg["detailed_template"]).format(visual=visual, bullet=bullet)
 
     return {
         "id": clip_id,
         "label": label,
         "detailed_prompt": detailed,
         "veo_prompt": veo,
-        "duration_seconds": SIGNS_CLIP_SECONDS,
+        "duration_seconds": seconds,
         "script_line": bullet,
     }
 
