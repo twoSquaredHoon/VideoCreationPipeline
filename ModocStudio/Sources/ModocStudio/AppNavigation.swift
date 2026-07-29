@@ -71,7 +71,7 @@ struct HomeView: View {
 
                 HomeDestinationCard(
                     title: "Run Pipeline",
-                    subtitle: "Create one full video or run today’s daily batch (scripts and prompts)",
+                    subtitle: "Create one full video from a blog URL",
                     systemImage: "play.circle.fill",
                     tint: .orange
                 ) {

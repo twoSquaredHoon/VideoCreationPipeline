@@ -3,72 +3,33 @@ import SwiftUI
 struct RunPipelineHubView: View {
     @EnvironmentObject private var store: ProjectStore
 
-    private var todayID: String { BatchRunner.todayFolderID() }
-
-    private let gridColumns = [
-        GridItem(.adaptive(minimum: 260, maximum: 420), spacing: 20),
-    ]
-
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 28) {
-                header
-
-                LazyVGrid(columns: gridColumns, alignment: .leading, spacing: 20) {
-                    creationCard(
-                        title: "Single Video",
-                        subtitle: "Paste one blog URL and run the full pipeline automatically — script, article check, clip prompts, voiceover, and Veo videos.",
-                        systemImage: "1.circle.fill",
-                        tint: .orange
-                    ) {
-                        store.newProjectCreationMode = .automaticFull
-                        store.showNewProjectSheet = true
-                    }
-
-                    creationCard(
-                        title: "Single Video (Manual)",
-                        subtitle: "Paste one blog URL and create the project only. Run each step yourself in Browse Projects when you are ready.",
-                        systemImage: "hand.tap.fill",
-                        tint: .purple
-                    ) {
-                        store.newProjectCreationMode = .manual
-                        store.showNewProjectSheet = true
-                    }
-
-                    creationCard(
-                        title: "Daily Batch",
-                        subtitle: "Fetch English and Korean posts from the last 24 hours. Creates scripts and clip prompts only — review and finish in Browse Projects.",
-                        systemImage: "calendar.badge.clock",
-                        tint: .blue
-                    ) {
-                        store.startDailyBatch(dateFolderID: todayID)
-                    }
-
-                    creationCard(
-                        title: "Custom Batch",
-                        subtitle: "Choose how many articles, language, time window, and which pipeline steps to run — article check, voiceover, and videos optional.",
-                        systemImage: "slider.horizontal.3",
-                        tint: .teal
-                    ) {
-                        store.showCustomBatchSheet = true
-                    }
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Run Pipeline")
+                        .font(.largeTitle.bold())
+                    Text("Create one video from a blog URL.")
+                        .font(.title3)
+                        .foregroundStyle(.secondary)
                 }
+
+                creationCard(
+                    title: "Single Video",
+                    subtitle: "Paste one blog URL and run the full pipeline automatically — script, article check, clip prompts, voiceover, and Veo videos.",
+                    systemImage: "1.circle.fill",
+                    tint: .orange
+                ) {
+                    store.newProjectCreationMode = .automaticFull
+                    store.showNewProjectSheet = true
+                }
+                .frame(maxWidth: 420)
             }
             .padding(24)
             .frame(maxWidth: 920, alignment: .leading)
             .frame(maxWidth: .infinity)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
-
-    private var header: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("Run Pipeline")
-                .font(.largeTitle.bold())
-            Text("Choose how to create new content.")
-                .font(.title3)
-                .foregroundStyle(.secondary)
-        }
     }
 
     private func creationCard(
