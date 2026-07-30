@@ -3,6 +3,8 @@ import SwiftUI
 struct BrowseProjectsView: View {
     @EnvironmentObject private var store: ProjectStore
     @State private var showDetailOnNarrow = false
+    @State private var isDetailOpen = true
+    @State private var isCatalogOpen = true
 
     private var dateFolders: [ProjectBatchFolder] {
         store.ensureTodayInBatchFolders(store.batchFolders())
@@ -25,9 +27,15 @@ struct BrowseProjectsView: View {
                 store.browseSelectedDateFolder = dateFolders.first?.id
             }
             store.scheduleRefreshProjects(autoSelect: false)
+            if store.selectedProject != nil {
+                isDetailOpen = true
+            }
         }
         .onChange(of: store.selectedProjectID) { _, newValue in
-            if newValue != nil { showDetailOnNarrow = true }
+            if newValue != nil {
+                showDetailOnNarrow = true
+                isDetailOpen = true
+            }
         }
     }
 
@@ -43,6 +51,15 @@ struct BrowseProjectsView: View {
                         }
                         .buttonStyle(.bordered)
                         Spacer()
+                        Button {
+                            showDetailOnNarrow = false
+                            store.selectedProjectID = nil
+                        } label: {
+                            Image(systemName: "xmark.circle.fill")
+                                .foregroundStyle(.secondary)
+                        }
+                        .buttonStyle(.plain)
+                        .help("Close project")
                     }
                     .padding(.horizontal, 12)
                     .padding(.vertical, 8)
@@ -57,11 +74,115 @@ struct BrowseProjectsView: View {
 
     private func wideLayout(width: CGFloat) -> some View {
         HStack(spacing: 0) {
-            catalogPanel
-                .frame(width: min(340, max(220, width * 0.32)))
-            Divider()
-            detailPanel
+            if isCatalogOpen {
+                VStack(spacing: 0) {
+                    HStack {
+                        Text("Projects")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                        if isDetailOpen {
+                            Button {
+                                withAnimation(.easeInOut(duration: 0.15)) {
+                                    isCatalogOpen = false
+                                }
+                            } label: {
+                                Image(systemName: "sidebar.left")
+                            }
+                            .buttonStyle(.bordered)
+                            .controlSize(.small)
+                            .help("Collapse project list")
+                        }
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+                    Divider()
+                    catalogPanel
+                }
+                .frame(
+                    width: isDetailOpen
+                        ? min(340, max(220, width * 0.32))
+                        : nil
+                )
+                .frame(maxWidth: isDetailOpen ? nil : .infinity)
+            } else {
+                Button {
+                    withAnimation(.easeInOut(duration: 0.15)) {
+                        isCatalogOpen = true
+                    }
+                } label: {
+                    VStack(spacing: 8) {
+                        Image(systemName: "sidebar.left")
+                            .font(.title3)
+                        Text("List")
+                            .font(.caption2)
+                    }
+                    .foregroundStyle(.secondary)
+                    .frame(maxHeight: .infinity)
+                    .frame(width: 48)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help("Show project list")
+                .background(Color(nsColor: .windowBackgroundColor))
+            }
+
+            if isDetailOpen {
+                Divider()
+                VStack(spacing: 0) {
+                    HStack {
+                        if !isCatalogOpen {
+                            Button {
+                                withAnimation(.easeInOut(duration: 0.15)) {
+                                    isCatalogOpen = true
+                                }
+                            } label: {
+                                Label("Projects", systemImage: "sidebar.left")
+                            }
+                            .buttonStyle(.bordered)
+                            .controlSize(.small)
+                        }
+                        Text("Working project")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                        Button {
+                            isDetailOpen = false
+                            isCatalogOpen = true
+                        } label: {
+                            Label("Close", systemImage: "sidebar.trailing")
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                        .help("Hide the working project panel")
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+                    Divider()
+                    detailPanel
+                }
                 .frame(minWidth: 0, maxWidth: .infinity)
+            } else if store.selectedProject != nil {
+                Divider()
+                Button {
+                    isDetailOpen = true
+                } label: {
+                    VStack(spacing: 10) {
+                        Image(systemName: "sidebar.trailing")
+                            .font(.title2)
+                        Text("Open")
+                            .font(.caption)
+                        Text("project")
+                            .font(.caption2)
+                    }
+                    .foregroundStyle(.secondary)
+                    .frame(maxHeight: .infinity)
+                    .frame(width: 52)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help("Show the working project panel")
+            }
         }
     }
 
@@ -71,7 +192,7 @@ struct BrowseProjectsView: View {
                 VStack(alignment: .leading, spacing: 8) {
                     Text("Browse Projects")
                         .font(.largeTitle.bold())
-                    Text("Pick a date, then open a project to edit and run pipeline steps.")
+                    Text("Pick a date (or Other projects), then open a project to edit and run pipeline steps.")
                         .font(.callout)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)

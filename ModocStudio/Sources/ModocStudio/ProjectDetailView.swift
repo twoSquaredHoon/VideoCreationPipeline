@@ -12,6 +12,7 @@ struct ProjectDetailView: View {
     @State private var loadedClips: [ClipRecord] = []
     @State private var loadedScript = ""
     @State private var isLoadingDetail = true
+    @State private var isMenuExpanded = true
 
     enum TabSet {
         case workspace
@@ -34,7 +35,7 @@ struct ProjectDetailView: View {
         static func tabs(for set: TabSet) -> [DetailTab] {
             switch set {
             case .workspace:
-                [.workflow, .script, .articleCheck, .voiceover, .clips, .log, .graph]
+                [.workflow, .script, .articleCheck, .prompts, .voiceover, .clips, .log, .graph]
             case .full:
                 allCases
             }
@@ -52,9 +53,45 @@ struct ProjectDetailView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            header
-            Divider()
-            tabPicker
+            HStack(spacing: 8) {
+                Button {
+                    withAnimation(.easeInOut(duration: 0.18)) {
+                        isMenuExpanded.toggle()
+                    }
+                } label: {
+                    Label(
+                        isMenuExpanded ? "Hide project menu" : "Show project menu",
+                        systemImage: isMenuExpanded ? "chevron.down" : "chevron.right"
+                    )
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+                .help(isMenuExpanded ? "Collapse project header and tabs" : "Expand project header and tabs")
+
+                if !isMenuExpanded {
+                    Text(tab.rawValue)
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                    Text("·")
+                        .foregroundStyle(.tertiary)
+                    Text(current.manifest.title)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+
+            if isMenuExpanded {
+                Divider()
+                header
+                Divider()
+                tabPicker
+            }
             Divider()
 
             Group {
@@ -80,6 +117,7 @@ struct ProjectDetailView: View {
         .onChange(of: project.id) { _, _ in
             ensureValidTab()
             loadDetailContent()
+            isMenuExpanded = true
         }
         .onChange(of: store.pipeline.isRunning) { _, running in
             if !running { loadDetailContent() }
@@ -160,7 +198,9 @@ struct ProjectDetailView: View {
         case .articleCheck:
             ScriptCheckView(project: current)
         case .prompts:
-            PromptsView(decisions: current.loadDecisions(), clips: clips)
+            PromptsView(project: current, clips: clips) {
+                loadDetailContent()
+            }
         case .voiceover:
             VoiceoverView(project: current)
         case .clips:
@@ -168,7 +208,9 @@ struct ProjectDetailView: View {
                 project: current,
                 clips: clips,
                 selectedClipID: $selectedClipID
-            )
+            ) {
+                loadDetailContent()
+            }
         case .log:
             LogView(log: store.pipeline.logText)
         }
@@ -358,7 +400,16 @@ struct WorkflowView: View {
                         title: current.hasClipsJSON ? "Regenerate clip prompts" : "Generate clip prompts",
                         enabled: current.hasScript
                     ) {
-                        Task { await run(.generatePrompts) }
+                        Task { await run(.generatePrompts, thenOpenPrompts: true) }
+                    }
+                    if current.hasClipsJSON {
+                        Button {
+                            selectedTab = .prompts
+                        } label: {
+                            Label("Review & edit clip prompts", systemImage: "text.alignleft")
+                                .font(.caption)
+                        }
+                        .buttonStyle(.plain)
                     }
                 }
 
@@ -596,7 +647,11 @@ struct WorkflowView: View {
         }
     }
 
-    private func run(_ step: PipelineService.PipelineStep, thenOpenArticleCheck: Bool = false) async {
+    private func run(
+        _ step: PipelineService.PipelineStep,
+        thenOpenArticleCheck: Bool = false,
+        thenOpenPrompts: Bool = false
+    ) async {
         actionError = nil
         isWorking = true
         defer { isWorking = false }
@@ -606,10 +661,16 @@ struct WorkflowView: View {
             if thenOpenArticleCheck {
                 selectedTab = .articleCheck
             }
+            if thenOpenPrompts {
+                selectedTab = .prompts
+            }
         } catch {
             actionError = error.localizedDescription
             if thenOpenArticleCheck {
                 selectedTab = .articleCheck
+            }
+            if thenOpenPrompts {
+                selectedTab = .prompts
             }
         }
     }

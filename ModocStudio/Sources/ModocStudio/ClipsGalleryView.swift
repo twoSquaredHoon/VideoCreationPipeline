@@ -5,11 +5,20 @@ struct ClipsGalleryView: View {
     let project: VideoProject
     let clips: [ClipRecord]
     @Binding var selectedClipID: String?
+    var onPromptsSaved: (() -> Void)?
 
     @State private var regenError: String?
     @State private var isRegenerating = false
     @State private var playerKey = UUID()
     @State private var confirmRegenerateAll = false
+    @State private var isClipSidebarOpen = true
+
+    @State private var detailedText = ""
+    @State private var veoText = ""
+    @State private var isPromptDirty = false
+    @State private var suppressPromptDirty = false
+    @State private var promptSaveError: String?
+    @State private var promptSaveMessage: String?
 
     private var current: VideoProject {
         store.projects.first { $0.id == project.id } ?? project
@@ -17,6 +26,11 @@ struct ClipsGalleryView: View {
 
     private var videoStatus: (done: Int, total: Int) {
         current.videoStatus(for: clips)
+    }
+
+    private var selectedClip: ClipRecord? {
+        guard let id = selectedClipID else { return nil }
+        return clips.first { $0.id == id }
     }
 
     var body: some View {
@@ -31,11 +45,22 @@ struct ClipsGalleryView: View {
                 VStack(spacing: 0) {
                     clipsToolbar
                     Divider()
-                    HSplitView {
-                        clipList
-                            .frame(minWidth: 200, idealWidth: 220, maxWidth: 280)
-                        clipPreview
-                            .frame(minWidth: 320)
+                    HStack(spacing: 0) {
+                        if isClipSidebarOpen {
+                            clipList
+                                .frame(minWidth: 160, idealWidth: 200, maxWidth: 260)
+                            Divider()
+                        } else {
+                            collapsedClipSidebar
+                            Divider()
+                        }
+
+                        HSplitView {
+                            promptPanel
+                                .frame(minWidth: 240, idealWidth: 360)
+                            videoPanel
+                                .frame(minWidth: 260, idealWidth: 360)
+                        }
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
@@ -45,10 +70,37 @@ struct ClipsGalleryView: View {
         .onChange(of: store.pipeline.isRunning) { _, running in
             if !running { playerKey = UUID() }
         }
+        .onAppear {
+            if selectedClipID == nil {
+                selectedClipID = clips.first?.id
+            }
+            loadPromptEditors()
+        }
+        .onChange(of: selectedClipID) { _, _ in
+            loadPromptEditors()
+        }
+        .onChange(of: clips.map(\.id).joined(separator: ",")) { _, _ in
+            if selectedClipID == nil || !clips.contains(where: { $0.id == selectedClipID }) {
+                selectedClipID = clips.first?.id
+            }
+            loadPromptEditors()
+        }
     }
 
     private var clipsToolbar: some View {
         HStack(spacing: 12) {
+            Button {
+                withAnimation(.easeInOut(duration: 0.15)) {
+                    isClipSidebarOpen.toggle()
+                }
+            } label: {
+                Label(
+                    isClipSidebarOpen ? "Hide clips" : "Show clips",
+                    systemImage: isClipSidebarOpen ? "sidebar.left" : "sidebar.left"
+                )
+            }
+            .help(isClipSidebarOpen ? "Collapse clip list" : "Expand clip list")
+
             Text("\(videoStatus.done)/\(videoStatus.total) clips generated")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
@@ -86,82 +138,207 @@ struct ClipsGalleryView: View {
         .padding(.vertical, 10)
     }
 
-    private var clipList: some View {
-        List(clips, selection: $selectedClipID) { clip in
-            HStack {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(clip.label)
-                        .font(.subheadline.weight(.medium))
+    private var collapsedClipSidebar: some View {
+        Button {
+            withAnimation(.easeInOut(duration: 0.15)) {
+                isClipSidebarOpen = true
+            }
+        } label: {
+            VStack(spacing: 8) {
+                Image(systemName: "sidebar.left")
+                    .font(.title3)
+                Text("Clips")
+                    .font(.caption2)
+                if let clip = selectedClip {
                     Text(clip.id)
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                }
-                Spacer()
-                if isRegeneratingAllClips {
-                    ProgressView()
-                        .controlSize(.mini)
-                } else if hasVideo(clip.id) {
-                    Image(systemName: "checkmark.circle.fill")
-                        .foregroundStyle(.green)
-                        .font(.caption)
-                } else {
-                    Image(systemName: "circle.dashed")
-                        .foregroundStyle(.tertiary)
-                        .font(.caption)
+                        .font(.system(size: 9, design: .monospaced))
+                        .lineLimit(2)
+                        .multilineTextAlignment(.center)
                 }
             }
-            .tag(clip.id)
+            .foregroundStyle(.secondary)
+            .frame(maxHeight: .infinity)
+            .frame(width: 48)
+            .contentShape(Rectangle())
         }
-        .listStyle(.sidebar)
-        .frame(maxHeight: .infinity)
+        .buttonStyle(.plain)
+        .help("Show clip list")
+        .background(Color(nsColor: .windowBackgroundColor))
     }
 
-    @ViewBuilder
-    private var clipPreview: some View {
-        if let id = selectedClipID, let clip = clips.first(where: { $0.id == id }) {
-            VStack(alignment: .leading, spacing: 0) {
+    private var clipList: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack {
+                Text("Clips")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Button {
+                    withAnimation(.easeInOut(duration: 0.15)) {
+                        isClipSidebarOpen = false
+                    }
+                } label: {
+                    Image(systemName: "chevron.left")
+                        .font(.caption.weight(.semibold))
+                }
+                .buttonStyle(.plain)
+                .help("Collapse clip list")
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            Divider()
+            List(clips, selection: $selectedClipID) { clip in
                 HStack {
-                    Text(clip.label)
-                        .font(.title3.bold())
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(clip.label)
+                            .font(.subheadline.weight(.medium))
+                        Text(clip.id)
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
                     Spacer()
-                    regenerateButton(for: id)
+                    if isRegeneratingAllClips {
+                        ProgressView()
+                            .controlSize(.mini)
+                    } else if hasVideo(clip.id) {
+                        Image(systemName: "checkmark.circle.fill")
+                            .foregroundStyle(.green)
+                            .font(.caption)
+                    } else {
+                        Image(systemName: "circle.dashed")
+                            .foregroundStyle(.tertiary)
+                            .font(.caption)
+                    }
                 }
-                .padding(.horizontal)
-                .padding(.top, 12)
-                .padding(.bottom, 8)
+                .tag(clip.id)
+            }
+            .listStyle(.sidebar)
+        }
+        .frame(maxHeight: .infinity)
+        .background(Color(nsColor: .windowBackgroundColor))
+    }
 
-                if let regenError {
-                    Text(regenError)
+    private var promptPanel: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 8) {
+                Text("Prompts")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                if let clip = selectedClip {
+                    Text(clip.label)
                         .font(.caption)
-                        .foregroundStyle(.red)
-                        .padding(.horizontal)
-                        .padding(.bottom, 8)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
                 }
+                Spacer()
+                if isPromptDirty {
+                    Text("Unsaved")
+                        .font(.caption2)
+                        .foregroundStyle(.orange)
+                }
+                if let promptSaveMessage {
+                    Text(promptSaveMessage)
+                        .font(.caption2)
+                        .foregroundStyle(.green)
+                }
+                if let promptSaveError {
+                    Text(promptSaveError)
+                        .font(.caption2)
+                        .foregroundStyle(.red)
+                        .lineLimit(1)
+                }
+                Button("Reload") {
+                    loadPromptEditors()
+                }
+                .disabled(store.pipeline.isRunning)
+                Button("Save") {
+                    savePromptEdits()
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.small)
+                .disabled(!isPromptDirty || store.pipeline.isRunning || selectedClip == nil)
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            Divider()
 
-                previewContent(for: clip, id: id)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .layoutPriority(1)
-
-                if let prompt = clip.veoPrompt ?? clip.detailedPrompt {
-                    Divider()
-                    ScrollView {
-                        Text(prompt)
+            if selectedClip != nil {
+                VStack(alignment: .leading, spacing: 10) {
+                    if let line = selectedClip?.scriptLine, !line.isEmpty {
+                        Text(line)
                             .font(.caption)
                             .foregroundStyle(.secondary)
                             .textSelection(.enabled)
-                            .frame(maxWidth: .infinity, alignment: .leading)
                     }
-                    .frame(maxHeight: 120)
-                    .padding(.horizontal)
-                    .padding(.vertical, 8)
-                    .background(Color(nsColor: .windowBackgroundColor))
+
+                    Text("Detailed prompt")
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                    TextEditor(text: $detailedText)
+                        .font(.system(.caption, design: .monospaced))
+                        .frame(minHeight: 100)
+                        .onChange(of: detailedText) { _, _ in
+                            guard !suppressPromptDirty else { return }
+                            isPromptDirty = true
+                            promptSaveMessage = nil
+                        }
+
+                    Text("Veo prompt (used when regenerating this clip)")
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                    TextEditor(text: $veoText)
+                        .font(.system(.caption, design: .monospaced))
+                        .frame(minHeight: 140)
+                        .onChange(of: veoText) { _, _ in
+                            guard !suppressPromptDirty else { return }
+                            isPromptDirty = true
+                            promptSaveMessage = nil
+                        }
+                }
+                .padding(12)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            } else {
+                ContentUnavailableView("Select a clip", systemImage: "text.alignleft")
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color(nsColor: .controlBackgroundColor))
+    }
+
+    private var videoPanel: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack {
+                Text("Video")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                Spacer()
+                if let id = selectedClipID {
+                    regenerateButton(for: id)
                 }
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        } else {
-            ContentUnavailableView("Select a clip", systemImage: "play.rectangle")
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            Divider()
+
+            if let regenError {
+                Text(regenError)
+                    .font(.caption)
+                    .foregroundStyle(.red)
+                    .padding(.horizontal, 12)
+                    .padding(.top, 8)
+            }
+
+            if let id = selectedClipID, let clip = selectedClip {
+                previewContent(for: clip, id: id)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                ContentUnavailableView("Select a clip", systemImage: "play.rectangle")
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color(nsColor: .windowBackgroundColor))
     }
 
     @ViewBuilder
@@ -175,9 +352,8 @@ struct ClipsGalleryView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else if hasVideo(id), let url = current.resolvedVideoURL(for: id) {
             MacAVPlayerView(url: url)
-                .frame(minHeight: 280)
-                .padding(.horizontal, 12)
-                .padding(.bottom, 8)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .padding(12)
                 .id(playerKey)
         } else {
             ContentUnavailableView(
@@ -194,9 +370,41 @@ struct ClipsGalleryView: View {
         Button {
             Task { await regenerate(clipId: clipId) }
         } label: {
-            Label("Regenerate clip", systemImage: "arrow.clockwise")
+            Label("Regenerate", systemImage: "arrow.clockwise")
         }
         .disabled(!current.hasClipsJSON || store.pipeline.isRunning || isRegenerating)
+    }
+
+    private func loadPromptEditors() {
+        promptSaveError = nil
+        promptSaveMessage = nil
+        suppressPromptDirty = true
+        detailedText = selectedClip?.detailedPrompt ?? ""
+        veoText = selectedClip?.veoPrompt ?? ""
+        suppressPromptDirty = false
+        isPromptDirty = false
+    }
+
+    private func savePromptEdits() {
+        promptSaveError = nil
+        promptSaveMessage = nil
+        guard let clipID = selectedClipID else { return }
+        do {
+            var updated = current.loadClips()
+            guard let idx = updated.firstIndex(where: { $0.id == clipID }) else {
+                promptSaveError = "Clip not found"
+                return
+            }
+            updated[idx].detailedPrompt = detailedText
+            updated[idx].veoPrompt = veoText
+            try current.saveClips(updated)
+            isPromptDirty = false
+            promptSaveMessage = "Saved"
+            onPromptsSaved?()
+            store.scheduleRefreshProjects(autoSelect: false, delayMs: 0)
+        } catch {
+            promptSaveError = error.localizedDescription
+        }
     }
 
     private func regeneratingMessage(for clipId: String) -> String {
@@ -219,6 +427,9 @@ struct ClipsGalleryView: View {
     }
 
     private func regenerate(clipId: String) async {
+        if isPromptDirty {
+            savePromptEdits()
+        }
         regenError = nil
         isRegenerating = true
         defer { isRegenerating = false }
@@ -226,12 +437,16 @@ struct ClipsGalleryView: View {
             try await store.runWorkflowStep(current, step: .regenerateClip(clipId))
             playerKey = UUID()
             store.refreshProjects()
+            onPromptsSaved?()
         } catch {
             regenError = error.localizedDescription
         }
     }
 
     private func regenerateAll() async {
+        if isPromptDirty {
+            savePromptEdits()
+        }
         regenError = nil
         isRegenerating = true
         defer { isRegenerating = false }
@@ -239,6 +454,7 @@ struct ClipsGalleryView: View {
             try await store.runWorkflowStep(current, step: .regenerateAllClips)
             playerKey = UUID()
             store.refreshProjects()
+            onPromptsSaved?()
         } catch {
             regenError = error.localizedDescription
         }

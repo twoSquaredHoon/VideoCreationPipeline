@@ -238,63 +238,290 @@ struct ScriptReviewView: View {
 }
 
 struct PromptsView: View {
-    let decisions: String
+    @EnvironmentObject private var store: ProjectStore
+    let project: VideoProject
     let clips: [ClipRecord]
+    var onSaved: (() -> Void)?
 
-    @State private var selection: PromptSection = .decisions
+    @State private var selection: PromptSection = .detailed
+    @State private var selectedClipID: String?
+    @State private var draftClips: [String: ClipRecord] = [:]
+    @State private var detailedText = ""
+    @State private var veoText = ""
+    @State private var decisionsText = ""
+    @State private var isDirty = false
+    @State private var suppressDirty = false
+    @State private var saveError: String?
+    @State private var saveMessage: String?
 
     enum PromptSection: String, CaseIterable, Identifiable {
         case decisions = "Decisions"
-        case detailed = "Detailed prompts"
+        case detailed = "Clip prompts"
 
         var id: String { rawValue }
     }
 
+    private var current: VideoProject {
+        store.projects.first { $0.id == project.id } ?? project
+    }
+
+    private var displayClips: [ClipRecord] {
+        clips.map { draftClips[$0.id] ?? $0 }
+    }
+
+    private var selectedClip: ClipRecord? {
+        guard let id = selectedClipID else { return displayClips.first }
+        return displayClips.first { $0.id == id } ?? displayClips.first
+    }
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
+        Group {
+            if clips.isEmpty && current.loadDecisions().isEmpty {
+                ContentUnavailableView(
+                    "No clip prompts yet",
+                    systemImage: "text.alignleft",
+                    description: Text("Generate clip prompts from the Workflow tab, then edit each clip’s Veo prompt here.")
+                )
+            } else {
+                VStack(spacing: 0) {
+                    toolbar
+                    Divider()
+                    content
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .onAppear { reloadFromDisk() }
+        .onChange(of: clips.map(\.id).joined(separator: ",")) { _, _ in
+            reloadFromDisk()
+        }
+        .onChange(of: selectedClipID) { oldID, _ in
+            if let oldID { commitEditorToDraft(clipID: oldID) }
+            loadSelectedClipIntoEditors()
+        }
+        .onChange(of: selection) { oldValue, newValue in
+            if oldValue == .detailed, let id = selectedClipID {
+                commitEditorToDraft(clipID: id)
+            }
+            if newValue == .decisions {
+                suppressDirty = true
+                if decisionsText.isEmpty {
+                    decisionsText = current.loadDecisions()
+                }
+                suppressDirty = false
+            } else {
+                loadSelectedClipIntoEditors()
+            }
+        }
+    }
+
+    private var toolbar: some View {
+        HStack(spacing: 12) {
             Picker("Section", selection: $selection) {
                 ForEach(PromptSection.allCases) { s in
                     Text(s.rawValue).tag(s)
                 }
             }
             .pickerStyle(.segmented)
-            .padding()
+            .frame(maxWidth: 280)
 
-            ScrollView {
-                switch selection {
-                case .decisions:
-                    Text(decisions.isEmpty ? "No clip decisions yet." : decisions)
-                        .font(.body.monospaced())
-                        .textSelection(.enabled)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding()
-                case .detailed:
-                    if clips.isEmpty {
-                        Text("No prompts yet.")
-                            .foregroundStyle(.secondary)
-                            .padding()
-                    } else {
-                        VStack(alignment: .leading, spacing: 20) {
-                            ForEach(clips) { clip in
-                                VStack(alignment: .leading, spacing: 8) {
-                                    Text(clip.label)
-                                        .font(.headline)
-                                    if let line = clip.scriptLine {
-                                        Text(line)
-                                            .font(.caption)
-                                            .foregroundStyle(.secondary)
-                                    }
-                                    Text(clip.detailedPrompt ?? clip.veoPrompt ?? "")
-                                        .font(.caption.monospaced())
-                                        .textSelection(.enabled)
-                                }
-                                Divider()
-                            }
-                        }
-                        .padding()
-                    }
+            if selection == .detailed, let clip = selectedClip {
+                Text(clip.label)
+                    .font(.subheadline.weight(.semibold))
+                    .lineLimit(1)
+            }
+
+            Spacer()
+
+            if isDirty {
+                Text("Unsaved changes")
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+            }
+            if let saveMessage {
+                Text(saveMessage)
+                    .font(.caption)
+                    .foregroundStyle(.green)
+            }
+            if let saveError {
+                Text(saveError)
+                    .font(.caption)
+                    .foregroundStyle(.red)
+                    .lineLimit(2)
+            }
+
+            Button("Reload") {
+                reloadFromDisk()
+            }
+            .disabled(store.pipeline.isRunning)
+
+            Button("Save") {
+                saveEdits()
+            }
+            .buttonStyle(.borderedProminent)
+            .disabled(!isDirty || store.pipeline.isRunning)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+    }
+
+    @ViewBuilder
+    private var content: some View {
+        switch selection {
+        case .decisions:
+            TextEditor(text: $decisionsText)
+                .font(.system(.body, design: .monospaced))
+                .padding(8)
+                .onChange(of: decisionsText) { _, _ in
+                    guard !suppressDirty else { return }
+                    isDirty = true
+                    saveMessage = nil
+                }
+        case .detailed:
+            if clips.isEmpty {
+                ContentUnavailableView(
+                    "No clips.json yet",
+                    systemImage: "film",
+                    description: Text("Generate clip prompts first.")
+                )
+            } else {
+                HSplitView {
+                    clipList
+                        .frame(minWidth: 180, idealWidth: 220, maxWidth: 280)
+                    clipEditors
+                        .frame(minWidth: 320)
                 }
             }
+        }
+    }
+
+    private var clipList: some View {
+        List(selection: $selectedClipID) {
+            ForEach(displayClips) { clip in
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(clip.label)
+                        .font(.subheadline.weight(.semibold))
+                    Text(clip.id)
+                        .font(.caption2.monospaced())
+                        .foregroundStyle(.secondary)
+                    if let line = clip.scriptLine, !line.isEmpty {
+                        Text(line)
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(2)
+                    }
+                }
+                .tag(clip.id)
+                .padding(.vertical, 2)
+            }
+        }
+        .listStyle(.sidebar)
+    }
+
+    private var clipEditors: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            if let line = selectedClip?.scriptLine, !line.isEmpty {
+                Text(line)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 4)
+            }
+
+            Text("Detailed prompt")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+            TextEditor(text: $detailedText)
+                .font(.system(.callout, design: .monospaced))
+                .frame(minHeight: 120)
+                .onChange(of: detailedText) { _, newValue in
+                    guard !suppressDirty else { return }
+                    isDirty = true
+                    saveMessage = nil
+                    if var clip = selectedClip {
+                        clip.detailedPrompt = newValue
+                        draftClips[clip.id] = clip
+                    }
+                }
+
+            Text("Veo prompt (used for video generation)")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+            TextEditor(text: $veoText)
+                .font(.system(.callout, design: .monospaced))
+                .frame(minHeight: 160)
+                .onChange(of: veoText) { _, newValue in
+                    guard !suppressDirty else { return }
+                    isDirty = true
+                    saveMessage = nil
+                    if var clip = selectedClip {
+                        clip.veoPrompt = newValue
+                        draftClips[clip.id] = clip
+                    }
+                }
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .background(Color(nsColor: .controlBackgroundColor))
+    }
+
+    private func reloadFromDisk() {
+        saveError = nil
+        saveMessage = nil
+        suppressDirty = true
+        decisionsText = current.loadDecisions()
+        draftClips = Dictionary(uniqueKeysWithValues: clips.map { ($0.id, $0) })
+        if selectedClipID == nil || !clips.contains(where: { $0.id == selectedClipID }) {
+            selectedClipID = clips.first?.id
+        }
+        loadSelectedClipIntoEditors()
+        suppressDirty = false
+        isDirty = false
+    }
+
+    private func loadSelectedClipIntoEditors() {
+        suppressDirty = true
+        if let clip = selectedClip {
+            detailedText = clip.detailedPrompt ?? ""
+            veoText = clip.veoPrompt ?? ""
+        } else {
+            detailedText = ""
+            veoText = ""
+        }
+        suppressDirty = false
+    }
+
+    private func commitEditorToDraft(clipID: String) {
+        guard var clip = draftClips[clipID] ?? clips.first(where: { $0.id == clipID }) else { return }
+        clip.detailedPrompt = detailedText
+        clip.veoPrompt = veoText
+        draftClips[clipID] = clip
+    }
+
+    private func saveEdits() {
+        saveError = nil
+        saveMessage = nil
+        do {
+            if selection == .detailed, let id = selectedClipID {
+                commitEditorToDraft(clipID: id)
+            }
+            if selection == .decisions {
+                try decisionsText.write(to: current.decisionsURL, atomically: true, encoding: .utf8)
+            } else {
+                var updated = current.loadClips()
+                for i in updated.indices {
+                    if let draft = draftClips[updated[i].id] {
+                        updated[i].detailedPrompt = draft.detailedPrompt
+                        updated[i].veoPrompt = draft.veoPrompt
+                    }
+                }
+                try current.saveClips(updated)
+            }
+            isDirty = false
+            saveMessage = "Saved"
+            onSaved?()
+            store.scheduleRefreshProjects(autoSelect: false, delayMs: 0)
+        } catch {
+            saveError = error.localizedDescription
         }
     }
 }

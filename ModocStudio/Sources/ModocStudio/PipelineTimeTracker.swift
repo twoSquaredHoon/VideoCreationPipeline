@@ -396,8 +396,6 @@ enum PipelineTimeTracker {
             return ("verifyScript", "Script vs article", nil)
         case .rewriteScriptLine(let id):
             return ("rewriteScriptLine", "Rewrite line \(id)", nil)
-        case .reviewFinishedVideo:
-            return ("reviewFinishedVideo", "Finished video review", nil)
         }
     }
 }

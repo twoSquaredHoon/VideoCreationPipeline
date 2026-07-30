@@ -25,7 +25,6 @@ struct ContentView: View {
             case .projects: return "Completed Articles"
             case .time: return "Pipeline Time"
             }
-        case .videoReview: return "Video Review"
         case .prompts: return "Prompts"
         }
     }
@@ -43,9 +42,6 @@ struct ContentView: View {
 
             GlobalStatsView()
                 .keepAliveSection(active: store.appSection == .stats)
-
-            VideoReviewView()
-                .keepAliveSection(active: store.appSection == .videoReview)
 
             PromptsEditorView()
                 .keepAliveSection(active: store.appSection == .prompts)
@@ -74,7 +70,7 @@ struct ContentView: View {
                 }
             }
 
-            if store.appSection == .browse || store.appSection == .videoReview {
+            if store.appSection == .browse {
                 ToolbarItem(placement: .primaryAction) {
                     HStack(spacing: 8) {
                         if store.isRefreshingProjects {

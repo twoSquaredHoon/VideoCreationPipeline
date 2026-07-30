@@ -152,9 +152,6 @@ enum VideoPromptField: String, CaseIterable, Identifiable, Hashable {
     case scriptLineRewrite
     case scriptLineRewriteHook
     case scriptLineRewriteBody
-    case visualMedicalReview
-    case finishedVideoReview
-    case finishedVideoReviewSystem
     case castBibleTemplate
     case visualCastEN
     case visualCastKO
@@ -190,9 +187,6 @@ enum VideoPromptField: String, CaseIterable, Identifiable, Hashable {
         case .scriptLineRewrite: return "Script line rewrite prompt"
         case .scriptLineRewriteHook: return "Rewrite system (HOOK)"
         case .scriptLineRewriteBody: return "Rewrite system (BODY/RELIEF/CTA)"
-        case .visualMedicalReview: return "Visual medical review prompt"
-        case .finishedVideoReview: return "Finished video review prompt"
-        case .finishedVideoReviewSystem: return "Finished video review system"
         case .castBibleTemplate: return "Cast bible template"
         case .visualCastEN: return "Visual cast (EN)"
         case .visualCastKO: return "Visual cast (KO)"
@@ -228,9 +222,6 @@ enum VideoPromptField: String, CaseIterable, Identifiable, Hashable {
         case .scriptLineRewrite: return ["script_line_rewrite_prompt"]
         case .scriptLineRewriteHook: return ["script_line_rewrite_system_hook"]
         case .scriptLineRewriteBody: return ["script_line_rewrite_system_body"]
-        case .visualMedicalReview: return ["visual_medical_review_prompt"]
-        case .finishedVideoReview: return ["finished_video_medical_review_prompt"]
-        case .finishedVideoReviewSystem: return ["finished_video_review_system"]
         case .castBibleTemplate: return ["cast_bible_template"]
         case .visualCastEN: return ["visual_cast", "en"]
         case .visualCastKO: return ["visual_cast", "ko"]

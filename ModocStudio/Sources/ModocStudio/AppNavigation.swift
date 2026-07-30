@@ -5,7 +5,6 @@ enum AppSection: String, Hashable {
     case browse
     case pipeline
     case stats
-    case videoReview
     case prompts
 }
 
@@ -71,20 +70,11 @@ struct HomeView: View {
 
                 HomeDestinationCard(
                     title: "Run Pipeline",
-                    subtitle: "Create one full video from a blog URL",
+                    subtitle: "Create one video — full auto or run steps manually",
                     systemImage: "play.circle.fill",
                     tint: .orange
                 ) {
                     store.enterPipeline()
-                }
-
-                HomeDestinationCard(
-                    title: "Video Review",
-                    subtitle: "Drop finished exports — Gemini reviews the full video",
-                    systemImage: "eye.fill",
-                    tint: .purple
-                ) {
-                    store.enterVideoReview()
                 }
 
                 HomeDestinationCard(

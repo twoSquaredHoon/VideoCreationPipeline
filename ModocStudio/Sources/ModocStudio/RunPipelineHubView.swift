@@ -9,7 +9,7 @@ struct RunPipelineHubView: View {
                 VStack(alignment: .leading, spacing: 8) {
                     Text("Run Pipeline")
                         .font(.largeTitle.bold())
-                    Text("Create one video from a blog URL.")
+                    Text("Create one video from a blog URL — full auto or step by step.")
                         .font(.title3)
                         .foregroundStyle(.secondary)
                 }
@@ -21,6 +21,17 @@ struct RunPipelineHubView: View {
                     tint: .orange
                 ) {
                     store.newProjectCreationMode = .automaticFull
+                    store.showNewProjectSheet = true
+                }
+                .frame(maxWidth: 420)
+
+                creationCard(
+                    title: "Single Video (Manual)",
+                    subtitle: "Paste one blog URL and create the project only. Run each step yourself in Browse Projects when you are ready.",
+                    systemImage: "hand.tap.fill",
+                    tint: .purple
+                ) {
+                    store.newProjectCreationMode = .manual
                     store.showNewProjectSheet = true
                 }
                 .frame(maxWidth: 420)

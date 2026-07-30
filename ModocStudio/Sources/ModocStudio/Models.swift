@@ -98,12 +98,12 @@ struct ProjectManifest: Codable, Hashable {
 }
 
 struct ClipRecord: Codable, Identifiable, Hashable {
-    let id: String
-    let label: String
-    let detailedPrompt: String?
-    let veoPrompt: String?
-    let durationSeconds: Int?
-    let scriptLine: String?
+    var id: String
+    var label: String
+    var detailedPrompt: String?
+    var veoPrompt: String?
+    var durationSeconds: Int?
+    var scriptLine: String?
 
     enum CodingKeys: String, CodingKey {
         case id, label
@@ -223,6 +223,27 @@ struct VideoProject: Identifiable, Hashable {
             return []
         }
         return file.clips.sorted { Self.sortKey(for: $0.id) < Self.sortKey(for: $1.id) }
+    }
+
+    func saveClips(_ clips: [ClipRecord]) throws {
+        let sorted = clips.sorted { Self.sortKey(for: $0.id) < Self.sortKey(for: $1.id) }
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        let data = try encoder.encode(ClipsFile(clips: sorted))
+        try data.write(to: clipsJSONURL, options: .atomic)
+        try formatClipPromptsText(sorted).write(to: promptsURL, atomically: true, encoding: .utf8)
+    }
+
+    private func formatClipPromptsText(_ clips: [ClipRecord]) -> String {
+        var lines: [String] = ["# Clip prompts\n"]
+        for clip in clips {
+            lines.append("## \(clip.label) (\(clip.id))\n\n")
+            lines.append(clip.detailedPrompt ?? "")
+            lines.append("\n\n**Veo prompt:**\n\n")
+            lines.append(clip.veoPrompt ?? "")
+            lines.append("\n\n")
+        }
+        return lines.joined()
     }
 
     static func sortKey(for id: String) -> (Int, Int) {
