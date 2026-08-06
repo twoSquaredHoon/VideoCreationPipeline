@@ -153,6 +153,22 @@ final class ProjectStore: ObservableObject {
         persistProjectGroups()
     }
 
+    /// Updates the display title in `project.json` (folder path / id stays the same).
+    func renameProject(id: String, to name: String) {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty,
+              let idx = projects.firstIndex(where: { $0.id == id }) else { return }
+        var manifest = projects[idx].manifest
+        guard manifest.title != trimmed else { return }
+        manifest.title = trimmed
+        do {
+            try saveManifest(manifest, folder: projects[idx].folderURL)
+            projects[idx].manifest = manifest
+        } catch {
+            ProjectFolderPicker.showError(error.localizedDescription)
+        }
+    }
+
     func deleteProjectGroup(id: String) {
         projectGroups.removeAll { $0.id == id }
         if browseSelectedGroupID == id {

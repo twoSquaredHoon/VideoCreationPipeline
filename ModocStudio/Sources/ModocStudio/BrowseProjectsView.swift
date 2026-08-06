@@ -64,6 +64,8 @@ struct BrowseProjectsView: View {
     @State private var newGroupName = ""
     @State private var renameGroupID: String?
     @State private var renameGroupName = ""
+    @State private var renameProjectID: String?
+    @State private var renameProjectName = ""
 
     private var selectedGroupID: String {
         store.browseSelectedGroupID ?? ProjectGroupsFile.ungroupedID
@@ -132,6 +134,28 @@ struct BrowseProjectsView: View {
                 renameGroupID = nil
                 renameGroupName = ""
             }
+        }
+        .alert(
+            "Rename project",
+            isPresented: Binding(
+                get: { renameProjectID != nil },
+                set: { if !$0 { renameProjectID = nil } }
+            )
+        ) {
+            TextField("Project name", text: $renameProjectName)
+            Button("Cancel", role: .cancel) {
+                renameProjectID = nil
+                renameProjectName = ""
+            }
+            Button("Save") {
+                if let id = renameProjectID {
+                    store.renameProject(id: id, to: renameProjectName)
+                }
+                renameProjectID = nil
+                renameProjectName = ""
+            }
+        } message: {
+            Text("Shown in Browse Projects and the project header. Folder name on disk stays the same.")
         }
     }
 
@@ -407,11 +431,16 @@ struct BrowseProjectsView: View {
                         ForEach(selectedGroupProjects) { project in
                             BrowseProjectCard(
                                 project: project,
-                                isSelected: store.selectedProjectID == project.id
-                            ) {
-                                store.selectedProjectID = project.id
-                                showDetailOnNarrow = true
-                            }
+                                isSelected: store.selectedProjectID == project.id,
+                                onSelect: {
+                                    store.selectedProjectID = project.id
+                                    showDetailOnNarrow = true
+                                },
+                                onRename: {
+                                    renameProjectID = project.id
+                                    renameProjectName = project.manifest.title
+                                }
+                            )
                         }
                     }
                     .padding(12)
@@ -616,49 +645,62 @@ private final class ProjectDropNSView: NSView {
 private struct BrowseProjectCard: View {
     let project: VideoProject
     let isSelected: Bool
-    let action: () -> Void
+    let onSelect: () -> Void
+    let onRename: () -> Void
 
     var body: some View {
-        ZStack {
-            HStack(alignment: .top, spacing: 12) {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text(project.manifest.title)
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(.primary)
-                        .multilineTextAlignment(.leading)
-                        .lineLimit(2)
-                    HStack(spacing: 6) {
-                        PhaseBadge(phase: project.manifest.phase)
-                        LanguageBadge(language: project.manifest.language)
+        HStack(alignment: .top, spacing: 8) {
+            ZStack {
+                HStack(alignment: .top, spacing: 12) {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text(project.manifest.title)
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(.primary)
+                            .multilineTextAlignment(.leading)
+                            .lineLimit(2)
+                        HStack(spacing: 6) {
+                            PhaseBadge(phase: project.manifest.phase)
+                            LanguageBadge(language: project.manifest.language)
+                        }
                     }
+                    Spacer(minLength: 0)
                 }
-                Spacer(minLength: 0)
-                Image(systemName: "line.3.horizontal")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.tertiary)
-                    .help("Drag onto a group")
-            }
-            .padding(14)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(
-                RoundedRectangle(cornerRadius: 12)
-                    .fill(Color(nsColor: .controlBackgroundColor))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 12)
-                    .stroke(isSelected ? Color.accentColor : Color.primary.opacity(0.08), lineWidth: isSelected ? 2 : 1)
-            )
-            .allowsHitTesting(false)
+                .padding(14)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .allowsHitTesting(false)
 
-            ProjectDragSource(
-                projectID: project.id,
-                title: project.manifest.title,
-                onClick: action
-            )
+                ProjectDragSource(
+                    projectID: project.id,
+                    title: project.manifest.title,
+                    onClick: onSelect
+                )
+            }
+            .frame(maxWidth: .infinity)
+
+            Menu {
+                Button("Rename…", action: onRename)
+                Divider()
+                ProjectMoveMenu(projectID: project.id)
+            } label: {
+                Image(systemName: "ellipsis.circle")
+                    .font(.body)
+                    .foregroundStyle(.secondary)
+                    .frame(width: 28, height: 28)
+                    .contentShape(Rectangle())
+            }
+            .menuStyle(.borderlessButton)
+            .help("Rename or move project")
+            .padding(.trailing, 10)
+            .padding(.top, 10)
         }
-        .contextMenu {
-            ProjectMoveMenu(projectID: project.id)
-        }
+        .background(
+            RoundedRectangle(cornerRadius: 12)
+                .fill(Color(nsColor: .controlBackgroundColor))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 12)
+                .stroke(isSelected ? Color.accentColor : Color.primary.opacity(0.08), lineWidth: isSelected ? 2 : 1)
+        )
     }
 }
 
