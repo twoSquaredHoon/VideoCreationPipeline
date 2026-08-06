@@ -271,6 +271,19 @@ struct ProjectDetailView: View {
 
                 HStack(spacing: 8) {
                     Button {
+                        do {
+                            try store.copyScriptPrompts(for: current)
+                            actionError = nil
+                        } catch {
+                            actionError = error.localizedDescription
+                        }
+                    } label: {
+                        Label("Copy script prompts", systemImage: "doc.on.clipboard")
+                    }
+                    .help("Refresh script_prompts.txt (blog + script + prompts) and copy to clipboard")
+                    .disabled(!current.hasScript && !current.hasClipsJSON)
+
+                    Button {
                         store.revealInFinder(current)
                     } label: {
                         Label("Finder", systemImage: "folder")

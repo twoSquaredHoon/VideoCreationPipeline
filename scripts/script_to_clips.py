@@ -200,19 +200,32 @@ def _allowed_durations() -> set[int]:
 
 def validate_clip_dict(clip: dict) -> dict:
     clip_id = clip.get("id")
+    detailed_prompt = prompt_to_text(clip.get("detailed_prompt"))
     veo_prompt = prompt_to_text(clip.get("veo_prompt"))
-    if not clip_id or not veo_prompt:
-        raise RuntimeError(f"Each clip needs id and veo_prompt: {clip}")
+    # Video generation prefers detailed_prompt (what users edit) when present.
+    video_prompt = detailed_prompt.strip() or veo_prompt.strip()
+    if not clip_id or not video_prompt:
+        raise RuntimeError(f"Each clip needs id and a detailed_prompt or veo_prompt: {clip}")
     duration = int(clip.get("duration_seconds", default_duration(str(clip_id))))
     if duration not in _allowed_durations():
         duration = default_duration(str(clip_id))
     return {
         "id": str(clip_id),
         "label": str(clip.get("label", clip_id)),
-        "detailed_prompt": prompt_to_text(clip.get("detailed_prompt")),
-        "veo_prompt": veo_prompt,
+        "detailed_prompt": detailed_prompt,
+        "veo_prompt": veo_prompt.strip() or detailed_prompt,
         "duration_seconds": duration,
     }
+
+
+def clip_video_prompt(clip: dict) -> str:
+    """Prompt sent to Veo — detailed_prompt wins so UI edits actually apply."""
+    detailed = prompt_to_text(clip.get("detailed_prompt")).strip()
+    veo = prompt_to_text(clip.get("veo_prompt")).strip()
+    prompt = detailed or veo
+    if not prompt:
+        raise RuntimeError(f"Clip {clip.get('id')!r} has no detailed_prompt or veo_prompt")
+    return prompt
 
 
 def parse_clips_json(raw: str) -> list[dict]:
@@ -380,12 +393,13 @@ def generate_all_clips(
             continue
 
         print(f"\n  [{i}/{len(clips)}] {clip_id} ({clip['duration_seconds']}s)")
-        print(f"    {clip['veo_prompt'][:120]}...")
+        video_prompt = clip_video_prompt(clip)
+        print(f"    {video_prompt[:120]}...")
         try:
             generate_video(
                 client,
                 model=veo_model,
-                prompt=clip["veo_prompt"],
+                prompt=video_prompt,
                 output_path=out_path,
                 duration_seconds=clip["duration_seconds"],
                 poll_seconds=poll_seconds,

@@ -271,19 +271,23 @@ struct ClipsGalleryView: View {
                             .textSelection(.enabled)
                     }
 
-                    Text("Detailed prompt")
+                    Text("Detailed prompt (used for video generation)")
                         .font(.caption2.weight(.semibold))
                         .foregroundStyle(.secondary)
                     TextEditor(text: $detailedText)
                         .font(.system(.caption, design: .monospaced))
                         .frame(minHeight: 100)
-                        .onChange(of: detailedText) { _, _ in
+                        .onChange(of: detailedText) { _, newValue in
                             guard !suppressPromptDirty else { return }
                             isPromptDirty = true
                             promptSaveMessage = nil
+                            // Keep Veo field in sync so regenerate uses this fix.
+                            suppressPromptDirty = true
+                            veoText = newValue
+                            suppressPromptDirty = false
                         }
 
-                    Text("Veo prompt (used when regenerating this clip)")
+                    Text("Veo prompt (kept in sync with detailed)")
                         .font(.caption2.weight(.semibold))
                         .foregroundStyle(.secondary)
                     TextEditor(text: $veoText)
@@ -396,10 +400,17 @@ struct ClipsGalleryView: View {
                 return
             }
             updated[idx].detailedPrompt = detailedText
-            updated[idx].veoPrompt = veoText
+            // Apply detailed → video prompt so regenerate uses the fix.
+            let videoPrompt = detailedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                ? veoText
+                : detailedText
+            updated[idx].veoPrompt = videoPrompt
             try current.saveClips(updated)
+            suppressPromptDirty = true
+            veoText = videoPrompt
+            suppressPromptDirty = false
             isPromptDirty = false
-            promptSaveMessage = "Saved"
+            promptSaveMessage = "Saved — applied to video prompt"
             onPromptsSaved?()
             store.scheduleRefreshProjects(autoSelect: false, delayMs: 0)
         } catch {

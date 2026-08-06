@@ -127,6 +127,8 @@ struct VideoProject: Identifiable, Hashable {
     var decisionsURL: URL { folderURL.appendingPathComponent("clip_decisions.txt") }
     var promptsURL: URL { folderURL.appendingPathComponent("clip_prompts.txt") }
     var clipsJSONURL: URL { folderURL.appendingPathComponent("clips.json") }
+    /// Single file: blog, script, and clip prompts.
+    var scriptPromptsURL: URL { folderURL.appendingPathComponent("script_prompts.txt") }
     var logURL: URL { folderURL.appendingPathComponent("pipeline.log") }
     var voiceoverURL: URL { folderURL.appendingPathComponent("voiceover.wav") }
     var speechURL: URL { folderURL.appendingPathComponent("speech.txt") }
@@ -232,6 +234,91 @@ struct VideoProject: Identifiable, Hashable {
         let data = try encoder.encode(ClipsFile(clips: sorted))
         try data.write(to: clipsJSONURL, options: .atomic)
         try formatClipPromptsText(sorted).write(to: promptsURL, atomically: true, encoding: .utf8)
+        try writeScriptPromptsFile(clips: sorted)
+    }
+
+    /// Rebuild `script_prompts.txt` from current project files (blog, script, prompts).
+    @discardableResult
+    func writeScriptPromptsFile(clips: [ClipRecord]? = nil) throws -> URL {
+        let text = buildScriptPromptsText(clips: clips ?? loadClips())
+        try text.write(to: scriptPromptsURL, atomically: true, encoding: .utf8)
+        return scriptPromptsURL
+    }
+
+    func buildScriptPromptsText(clips: [ClipRecord]? = nil) -> String {
+        let clipList = clips ?? loadClips()
+        let article = loadSourceArticle().trimmingCharacters(in: .whitespacesAndNewlines)
+        let script = loadScript().trimmingCharacters(in: .whitespacesAndNewlines)
+        let decisions = loadDecisions().trimmingCharacters(in: .whitespacesAndNewlines)
+        let cast = (try? String(contentsOf: folderURL.appendingPathComponent("visual_cast.txt"), encoding: .utf8))?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+
+        var parts: [String] = []
+        parts.append("# Script prompts — blog, script, and clip prompts")
+        parts.append("")
+        parts.append("## Meta")
+        parts.append("- Title: \(manifest.title)")
+        parts.append("- Language: \(manifest.language.rawValue)")
+        parts.append("- Blog URL: \(manifest.blogURL)")
+        parts.append("- Project folder: \(folderURL.path)")
+        parts.append("")
+
+        parts.append("## Blog / source article")
+        parts.append("")
+        if article.isEmpty {
+            parts.append("(No source_article.txt yet — compare script to article to fetch it, or use the blog URL above.)")
+        } else {
+            parts.append(article)
+        }
+        parts.append("")
+
+        parts.append("## Video script")
+        parts.append("")
+        parts.append(script.isEmpty ? "(No script.txt yet.)" : script)
+        parts.append("")
+
+        if !cast.isEmpty {
+            parts.append("## Visual cast")
+            parts.append("")
+            parts.append(cast)
+            parts.append("")
+        }
+
+        if !decisions.isEmpty {
+            parts.append("## Clip decisions")
+            parts.append("")
+            parts.append(decisions)
+            parts.append("")
+        }
+
+        parts.append("## Clip prompts (edit these — detailed prompt is used for video)")
+        parts.append("")
+        if clipList.isEmpty {
+            parts.append("(No clips.json yet.)")
+        } else {
+            for clip in clipList {
+                parts.append("### \(clip.label) (`\(clip.id)`)")
+                if let seconds = clip.durationSeconds {
+                    parts.append("- Duration: \(seconds)s")
+                }
+                if let line = clip.scriptLine, !line.isEmpty {
+                    parts.append("- Script line: \(line)")
+                }
+                parts.append("")
+                parts.append("#### Detailed prompt")
+                parts.append("")
+                parts.append((clip.detailedPrompt ?? "").isEmpty ? "(empty)" : clip.detailedPrompt!)
+                parts.append("")
+                parts.append("#### Veo prompt")
+                parts.append("")
+                parts.append((clip.veoPrompt ?? "").isEmpty ? "(empty)" : clip.veoPrompt!)
+                parts.append("")
+                parts.append("---")
+                parts.append("")
+            }
+        }
+
+        return parts.joined(separator: "\n")
     }
 
     private func formatClipPromptsText(_ clips: [ClipRecord]) -> String {

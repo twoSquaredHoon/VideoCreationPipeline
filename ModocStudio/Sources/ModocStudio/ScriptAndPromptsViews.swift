@@ -82,6 +82,19 @@ struct ScriptReviewView: View {
 
             Spacer()
 
+            Button {
+                do {
+                    try store.revealScriptPrompts(for: current)
+                    actionError = nil
+                } catch {
+                    actionError = error.localizedDescription
+                }
+            } label: {
+                Label("Open script_prompts.txt", systemImage: "folder")
+            }
+            .help("Show script_prompts.txt in Finder (blog + script + clip prompts)")
+            .disabled(!current.hasScript && !current.hasClipsJSON)
+
             if isCreating || store.pipeline.isRunning {
                 ProgressView().controlSize(.small)
             }
@@ -333,6 +346,17 @@ struct PromptsView: View {
 
             Spacer()
 
+            Button("Copy script prompts") {
+                do {
+                    try store.copyScriptPrompts(for: current)
+                    saveMessage = "Copied script_prompts.txt"
+                    saveError = nil
+                } catch {
+                    saveError = error.localizedDescription
+                }
+            }
+            .help("script_prompts.txt — blog + script + clip prompts")
+
             if isDirty {
                 Text("Unsaved changes")
                     .font(.caption)
@@ -427,7 +451,7 @@ struct PromptsView: View {
                     .padding(.horizontal, 4)
             }
 
-            Text("Detailed prompt")
+            Text("Detailed prompt (used for video generation)")
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(.secondary)
             TextEditor(text: $detailedText)
@@ -437,13 +461,18 @@ struct PromptsView: View {
                     guard !suppressDirty else { return }
                     isDirty = true
                     saveMessage = nil
+                    suppressDirty = true
+                    veoText = newValue
+                    suppressDirty = false
                     if var clip = selectedClip {
                         clip.detailedPrompt = newValue
+                        // Keep Veo prompt in sync so regenerate uses this fix.
+                        clip.veoPrompt = newValue
                         draftClips[clip.id] = clip
                     }
                 }
 
-            Text("Veo prompt (used for video generation)")
+            Text("Veo prompt (kept in sync with detailed — also sent to video)")
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(.secondary)
             TextEditor(text: $veoText)
@@ -493,7 +522,8 @@ struct PromptsView: View {
     private func commitEditorToDraft(clipID: String) {
         guard var clip = draftClips[clipID] ?? clips.first(where: { $0.id == clipID }) else { return }
         clip.detailedPrompt = detailedText
-        clip.veoPrompt = veoText
+        // Detailed is the video prompt source of truth when editing.
+        clip.veoPrompt = detailedText.isEmpty ? veoText : detailedText
         draftClips[clipID] = clip
     }
 
@@ -510,14 +540,24 @@ struct PromptsView: View {
                 var updated = current.loadClips()
                 for i in updated.indices {
                     if let draft = draftClips[updated[i].id] {
-                        updated[i].detailedPrompt = draft.detailedPrompt
-                        updated[i].veoPrompt = draft.veoPrompt
+                        let detailed = draft.detailedPrompt ?? ""
+                        updated[i].detailedPrompt = detailed
+                        // Apply detailed → video prompt so regenerate uses the fix.
+                        updated[i].veoPrompt = detailed.isEmpty
+                            ? (draft.veoPrompt ?? "")
+                            : detailed
                     }
                 }
                 try current.saveClips(updated)
+                if let id = selectedClipID, let saved = updated.first(where: { $0.id == id }) {
+                    suppressDirty = true
+                    detailedText = saved.detailedPrompt ?? ""
+                    veoText = saved.veoPrompt ?? ""
+                    suppressDirty = false
+                }
             }
             isDirty = false
-            saveMessage = "Saved"
+            saveMessage = "Saved — detailed prompt applied to video"
             onSaved?()
             store.scheduleRefreshProjects(autoSelect: false, delayMs: 0)
         } catch {

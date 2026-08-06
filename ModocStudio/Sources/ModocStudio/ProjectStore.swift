@@ -9,6 +9,8 @@ final class ProjectStore: ObservableObject {
     @Published var appSection: AppSection = .home
     @Published var browseSelectedDateFolder: String?
     @Published var browseSelectedLanguageFolder: String?
+    @Published var browseSelectedGroupID: String? = ProjectGroupsFile.ungroupedID
+    @Published var projectGroups: [ProjectGroup] = []
     @Published var showNewProjectSheet = false
     @Published var showCustomBatchSheet = false
     @Published var newProjectCreationMode: NewProjectCreationMode = .automaticFull
@@ -24,6 +26,7 @@ final class ProjectStore: ObservableObject {
     private var refreshTask: Task<Void, Never>?
     private var cachedBatchFolders: [ProjectBatchFolder]?
     private var autoPipelineRunDepth = 0
+    private var hasScannedProjects = false
 
     var selectedProject: VideoProject? {
         guard let id = selectedProjectID else { return nil }
@@ -37,6 +40,7 @@ final class ProjectStore: ObservableObject {
 
     init() {
         ModocConfig.bootstrap()
+        reloadProjectGroups()
         if ModocConfig.needsSetup {
             showSetupSheet = true
         } else {
@@ -56,11 +60,42 @@ final class ProjectStore: ObservableObject {
 
     func enterBrowse() {
         appSection = .browse
-        if browseSelectedDateFolder == nil {
-            browseSelectedDateFolder = ensureTodayInBatchFolders(batchFolders()).first?.id
+        reloadProjectGroups()
+        if browseSelectedGroupID == nil {
+            browseSelectedGroupID = ProjectGroupsFile.ungroupedID
         }
-        syncBrowseLanguageSelection()
         scheduleRefreshProjects(autoSelect: false)
+    }
+
+    func reloadProjectGroups() {
+        let file = ProjectGroupsStore.load()
+        projectGroups = file.groups
+        if let selected = file.selectedGroupID {
+            browseSelectedGroupID = selected
+        } else if browseSelectedGroupID == nil {
+            browseSelectedGroupID = ProjectGroupsFile.ungroupedID
+        }
+        if hasScannedProjects {
+            pruneGroupMembership(knownIDs: Set(projects.map(\.id)))
+        }
+    }
+
+    private func persistProjectGroups() {
+        if hasScannedProjects {
+            pruneGroupMembership(knownIDs: Set(projects.map(\.id)))
+        }
+        let file = ProjectGroupsFile(
+            groups: projectGroups,
+            selectedGroupID: browseSelectedGroupID
+        )
+        try? ProjectGroupsStore.save(file)
+    }
+
+    /// Drop stale project IDs that no longer exist on disk.
+    private func pruneGroupMembership(knownIDs: Set<String>) {
+        for i in projectGroups.indices {
+            projectGroups[i].projectIDs.removeAll { !knownIDs.contains($0) }
+        }
     }
 
     func syncBrowseLanguageSelection() {
@@ -80,6 +115,81 @@ final class ProjectStore: ObservableObject {
         if !inFolder.contains(where: { $0.id == selectedProjectID }) {
             selectedProjectID = inFolder.first?.id
         }
+    }
+
+    // MARK: - Manual browse groups
+
+    var ungroupedProjects: [VideoProject] {
+        let grouped = Set(projectGroups.flatMap(\.projectIDs))
+        return projects
+            .filter { !grouped.contains($0.id) }
+            .sorted { $0.manifest.createdAt > $1.manifest.createdAt }
+    }
+
+    func projects(inGroup groupID: String) -> [VideoProject] {
+        if groupID == ProjectGroupsFile.ungroupedID {
+            return ungroupedProjects
+        }
+        guard let group = projectGroups.first(where: { $0.id == groupID }) else { return [] }
+        let byID = Dictionary(uniqueKeysWithValues: projects.map { ($0.id, $0) })
+        return group.projectIDs.compactMap { byID[$0] }
+    }
+
+    @discardableResult
+    func addProjectGroup(named name: String) -> ProjectGroup {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        let group = ProjectGroup(name: trimmed.isEmpty ? "New group" : trimmed)
+        projectGroups.append(group)
+        browseSelectedGroupID = group.id
+        persistProjectGroups()
+        return group
+    }
+
+    func renameProjectGroup(id: String, to name: String) {
+        guard let idx = projectGroups.firstIndex(where: { $0.id == id }) else { return }
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        projectGroups[idx].name = trimmed
+        persistProjectGroups()
+    }
+
+    func deleteProjectGroup(id: String) {
+        projectGroups.removeAll { $0.id == id }
+        if browseSelectedGroupID == id {
+            browseSelectedGroupID = ProjectGroupsFile.ungroupedID
+        }
+        persistProjectGroups()
+    }
+
+    func selectBrowseGroup(_ groupID: String) {
+        browseSelectedGroupID = groupID
+        let inGroup = projects(inGroup: groupID)
+        if !inGroup.contains(where: { $0.id == selectedProjectID }) {
+            selectedProjectID = inGroup.first?.id
+        }
+        persistProjectGroups()
+    }
+
+    func moveProject(_ projectID: String, toGroup groupID: String) {
+        for i in projectGroups.indices {
+            projectGroups[i].projectIDs.removeAll { $0 == projectID }
+        }
+        if groupID != ProjectGroupsFile.ungroupedID,
+           let idx = projectGroups.firstIndex(where: { $0.id == groupID }) {
+            if !projectGroups[idx].projectIDs.contains(projectID) {
+                projectGroups[idx].projectIDs.append(projectID)
+            }
+        }
+        browseSelectedGroupID = groupID
+        selectedProjectID = projectID
+        persistProjectGroups()
+    }
+
+    func groupID(containing projectID: String) -> String {
+        if let group = projectGroups.first(where: { $0.projectIDs.contains(projectID) }) {
+            return group.id
+        }
+        return ProjectGroupsFile.ungroupedID
     }
 
     func enterPipeline() {
@@ -318,6 +428,7 @@ final class ProjectStore: ObservableObject {
     func openProjectInBrowse(_ project: VideoProject) {
         appSection = .browse
         selectedProjectID = project.id
+        browseSelectedGroupID = groupID(containing: project.id)
         if let batchDate = batchFolderName(for: project) {
             browseSelectedDateFolder = batchDate
             if let lang = batchLanguageFolder(for: project, dateID: batchDate) {
@@ -331,6 +442,7 @@ final class ProjectStore: ObservableObject {
             browseSelectedDateFolder = ProjectBatchFolder.legacyID
             browseSelectedLanguageFolder = nil
         }
+        persistProjectGroups()
         scheduleRefreshProjects(autoSelect: false, delayMs: 200)
     }
 
@@ -368,7 +480,10 @@ final class ProjectStore: ObservableObject {
         guard !Task.isCancelled else { return }
 
         projects = loaded
+        hasScannedProjects = true
         invalidateBatchFolderCache()
+        pruneGroupMembership(knownIDs: Set(loaded.map(\.id)))
+        persistProjectGroups()
 
         guard autoSelect else { return }
 
@@ -430,7 +545,10 @@ final class ProjectStore: ObservableObject {
             pipelineRunning: pipeline.isRunning
         )
         projects = loaded
+        hasScannedProjects = true
         invalidateBatchFolderCache()
+        pruneGroupMembership(knownIDs: Set(loaded.map(\.id)))
+        persistProjectGroups()
 
         guard autoSelect else { return }
 
@@ -481,6 +599,7 @@ final class ProjectStore: ObservableObject {
         selectedProjectID = folder.path
         pipelineFocusedProjectID = nil
         appSection = .browse
+        browseSelectedGroupID = groupID(containing: folder.path)
         if let project = loadProject(from: folder) {
             PipelineTimeTracker.recordProjectOpened(project)
             if let batchDate = batchFolderName(for: project) {
@@ -488,6 +607,7 @@ final class ProjectStore: ObservableObject {
                 syncBrowseLanguageSelection()
             }
         }
+        persistProjectGroups()
         scheduleRefreshProjects(autoSelect: true, delayMs: 150)
     }
 
@@ -726,8 +846,10 @@ final class ProjectStore: ObservableObject {
                 if case .generateScript = step {
                     manifest.title = VideoProject.title(from: updated.loadScript())
                 }
+                try? updated.writeScriptPromptsFile()
             case .generatePrompts:
                 manifest.phase = .promptsReview
+                try? updated.writeScriptPromptsFile()
             case .generateVoiceover:
                 manifest.phase = .voiceoverReview
             case .generateVideos, .regenerateClip, .regenerateAllClips, .createCustomClip:
@@ -1002,6 +1124,26 @@ final class ProjectStore: ObservableObject {
 
     func revealInFinder(_ project: VideoProject) {
         NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: project.folderURL.path)
+    }
+
+    /// Refresh `script_prompts.txt`, copy contents to clipboard, optionally reveal the file.
+    @discardableResult
+    func copyScriptPrompts(for project: VideoProject, reveal: Bool = false) throws -> URL {
+        let latest = projects.first { $0.id == project.id } ?? project
+        let url = try latest.writeScriptPromptsFile()
+        let text = try String(contentsOf: url, encoding: .utf8)
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
+        if reveal {
+            NSWorkspace.shared.selectFile(url.path, inFileViewerRootedAtPath: latest.folderURL.path)
+        }
+        return url
+    }
+
+    func revealScriptPrompts(for project: VideoProject) throws {
+        let latest = projects.first { $0.id == project.id } ?? project
+        let url = try latest.writeScriptPromptsFile()
+        NSWorkspace.shared.selectFile(url.path, inFileViewerRootedAtPath: latest.folderURL.path)
     }
 
     func revealBatchLog(in dateFolderID: String) {
