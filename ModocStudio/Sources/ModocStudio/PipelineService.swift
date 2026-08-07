@@ -202,6 +202,7 @@ enum PipelineError: LocalizedError {
     case missingSetup
     case cannotWriteProjects
     case exitCode(Int)
+    case message(String)
 
     var errorDescription: String? {
         switch self {
@@ -213,6 +214,8 @@ enum PipelineError: LocalizedError {
             return "Cannot save projects. Choose your modocAI folder or fix output/projects permissions."
         case .exitCode(let code):
             return "Pipeline step failed (exit \(code)). See log for details."
+        case .message(let text):
+            return text
         }
     }
 }

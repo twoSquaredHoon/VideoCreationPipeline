@@ -12,6 +12,7 @@ struct ClipsGalleryView: View {
     @State private var playerKey = UUID()
     @State private var confirmRegenerateAll = false
     @State private var isClipSidebarOpen = true
+    @State private var showCreateCustomClip = false
 
     @State private var detailedText = ""
     @State private var veoText = ""
@@ -36,11 +37,20 @@ struct ClipsGalleryView: View {
     var body: some View {
         Group {
             if clips.isEmpty {
-                ContentUnavailableView(
-                    "No clips yet",
-                    systemImage: "film",
-                    description: Text("Generate clip prompts and videos from the Workflow tab.")
-                )
+                VStack(spacing: 16) {
+                    ContentUnavailableView(
+                        "No clips yet",
+                        systemImage: "film",
+                        description: Text("Generate clip prompts from Workflow, or paste prompts to create a custom clip.")
+                    )
+                    Button {
+                        showCreateCustomClip = true
+                    } label: {
+                        Label("Create custom clip", systemImage: "plus.rectangle.on.rectangle")
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(store.pipeline.isRunning)
+                }
             } else {
                 VStack(spacing: 0) {
                     clipsToolbar
@@ -67,6 +77,14 @@ struct ClipsGalleryView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .sheet(isPresented: $showCreateCustomClip) {
+            CreatePastedCustomClipSheet(project: current) { clipID in
+                selectedClipID = clipID
+                onPromptsSaved?()
+                store.scheduleRefreshProjects(autoSelect: false)
+            }
+            .environmentObject(store)
+        }
         .onChange(of: store.pipeline.isRunning) { _, running in
             if !running { playerKey = UUID() }
         }
@@ -106,6 +124,14 @@ struct ClipsGalleryView: View {
                 .foregroundStyle(.secondary)
 
             Spacer()
+
+            Button {
+                showCreateCustomClip = true
+            } label: {
+                Label("Create custom clip", systemImage: "plus.rectangle.on.rectangle")
+            }
+            .disabled(store.pipeline.isRunning)
+            .help("Paste detailed and Veo prompts to add a custom clip")
 
             if isRegeneratingAllClips {
                 ProgressView()
@@ -473,5 +499,128 @@ struct ClipsGalleryView: View {
 
     private func hasVideo(_ clipID: String) -> Bool {
         current.hasVideo(for: clipID)
+    }
+}
+
+private struct CreatePastedCustomClipSheet: View {
+    @EnvironmentObject private var store: ProjectStore
+    @Environment(\.dismiss) private var dismiss
+
+    let project: VideoProject
+    var onCreated: (String) -> Void
+
+    @State private var label = ""
+    @State private var detailedPrompt = ""
+    @State private var veoPrompt = ""
+    @State private var durationSeconds = 6
+    @State private var alsoGenerateVideo = false
+    @State private var isSaving = false
+    @State private var errorText: String?
+
+    private var canSave: Bool {
+        let detailed = detailedPrompt.trimmingCharacters(in: .whitespacesAndNewlines)
+        let veo = veoPrompt.trimmingCharacters(in: .whitespacesAndNewlines)
+        return (!detailed.isEmpty || !veo.isEmpty) && !isSaving && !store.pipeline.isRunning
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack {
+                Text("Create custom clip")
+                    .font(.title2.bold())
+                Spacer()
+                Button("Cancel") { dismiss() }
+                    .disabled(isSaving)
+            }
+
+            Text("Paste prompts directly — no Gemini rewrite. Veo will use the detailed prompt when present.")
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            TextField("Label (optional)", text: $label)
+                .textFieldStyle(.roundedBorder)
+
+            HStack {
+                Text("Duration")
+                Picker("", selection: $durationSeconds) {
+                    Text("4s").tag(4)
+                    Text("6s").tag(6)
+                    Text("8s").tag(8)
+                }
+                .pickerStyle(.segmented)
+                .frame(maxWidth: 220)
+                Spacer()
+            }
+
+            Text("Detailed prompt")
+                .font(.headline)
+            TextEditor(text: $detailedPrompt)
+                .font(.body.monospaced())
+                .frame(minHeight: 140)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8)
+                        .stroke(Color.primary.opacity(0.12), lineWidth: 1)
+                )
+
+            Text("Veo prompt")
+                .font(.headline)
+            Text("Leave empty to copy from detailed.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            TextEditor(text: $veoPrompt)
+                .font(.body.monospaced())
+                .frame(minHeight: 100)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8)
+                        .stroke(Color.primary.opacity(0.12), lineWidth: 1)
+                )
+
+            Toggle("Also generate video now (Veo, paid)", isOn: $alsoGenerateVideo)
+
+            if let errorText {
+                Text(errorText)
+                    .font(.caption)
+                    .foregroundStyle(.red)
+            }
+
+            HStack {
+                Spacer()
+                if isSaving {
+                    ProgressView()
+                        .controlSize(.small)
+                    Text(alsoGenerateVideo ? "Creating + generating…" : "Creating…")
+                        .foregroundStyle(.secondary)
+                }
+                Button("Create clip") {
+                    Task { await create() }
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(!canSave)
+            }
+        }
+        .padding(20)
+        .frame(minWidth: 560, idealWidth: 640, minHeight: 520)
+    }
+
+    @MainActor
+    private func create() async {
+        errorText = nil
+        isSaving = true
+        defer { isSaving = false }
+        do {
+            let clipID = try await store.addPastedCustomClip(
+                project,
+                detailedPrompt: detailedPrompt,
+                veoPrompt: veoPrompt,
+                durationSeconds: durationSeconds,
+                label: label.isEmpty ? nil : label,
+                generateVideo: alsoGenerateVideo
+            )
+            onCreated(clipID)
+            dismiss()
+        } catch {
+            errorText = error.localizedDescription
+        }
     }
 }

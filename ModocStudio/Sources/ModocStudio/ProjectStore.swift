@@ -1054,6 +1054,75 @@ final class ProjectStore: ObservableObject {
         return after.last(where: { $0.id.hasPrefix("custom_") })?.id ?? "custom"
     }
 
+    /// Add a custom clip from pasted detailed/Veo prompts (no Gemini prompt generation).
+    @discardableResult
+    func addPastedCustomClip(
+        _ project: VideoProject,
+        detailedPrompt: String,
+        veoPrompt: String,
+        durationSeconds: Int = 6,
+        label: String? = nil,
+        generateVideo: Bool = false
+    ) async throws -> String {
+        let detailed = detailedPrompt.trimmingCharacters(in: .whitespacesAndNewlines)
+        var veo = veoPrompt.trimmingCharacters(in: .whitespacesAndNewlines)
+        if veo.isEmpty { veo = detailed }
+        guard !detailed.isEmpty || !veo.isEmpty else {
+            throw PipelineError.message("Paste a detailed prompt or a Veo prompt.")
+        }
+
+        let allowed = [4, 6, 8]
+        let duration = allowed.contains(durationSeconds) ? durationSeconds : 6
+
+        var clips = project.loadClips()
+        let nextNum = (clips.compactMap { clip -> Int? in
+            guard clip.id.hasPrefix("custom_"), let n = Int(clip.id.dropFirst(7)) else { return nil }
+            return n
+        }.max() ?? 0) + 1
+        let clipID = "custom_\(nextNum)"
+        let trimmedLabel = label?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let clipLabel = trimmedLabel.isEmpty ? "CUSTOM CLIP \(nextNum)" : trimmedLabel
+
+        let record = ClipRecord(
+            id: clipID,
+            label: clipLabel,
+            detailedPrompt: detailed.isEmpty ? veo : detailed,
+            veoPrompt: veo.isEmpty ? detailed : veo,
+            durationSeconds: duration,
+            scriptLine: nil
+        )
+        clips.append(record)
+        try project.saveClips(clips)
+        appendCustomDecisionLine(project: project, number: nextNum, description: clipLabel)
+
+        if let idx = projects.firstIndex(where: { $0.id == project.id }) {
+            // Keep in-memory project in sync for immediate UI refresh.
+            projects[idx] = loadProject(from: project.folderURL) ?? projects[idx]
+        }
+
+        if generateVideo {
+            try await runWorkflowStep(project, step: .regenerateClip(clipID))
+        } else {
+            refreshProjects(autoSelect: false)
+        }
+        return clipID
+    }
+
+    private func appendCustomDecisionLine(project: VideoProject, number: Int, description: String) {
+        let line = "CUSTOM CLIP \(number): \(description)\n"
+        let url = project.decisionsURL
+        var existing = (try? String(contentsOf: url, encoding: .utf8)) ?? ""
+        existing = existing.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let range = existing.range(of: #"^RELIEF CLIP:"#, options: [.regularExpression, .caseInsensitive]) {
+            existing.insert(contentsOf: line, at: range.lowerBound)
+        } else if existing.isEmpty {
+            existing = line.trimmingCharacters(in: .whitespacesAndNewlines)
+        } else {
+            existing += "\n\n" + line.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        try? (existing + "\n").write(to: url, atomically: true, encoding: .utf8)
+    }
+
     func proceedToPrompts(project: VideoProject) async throws {
         try await runWorkflowStep(project, step: .generatePrompts)
     }
