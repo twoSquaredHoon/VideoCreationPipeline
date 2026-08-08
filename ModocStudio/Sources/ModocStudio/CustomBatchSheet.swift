@@ -144,7 +144,7 @@ struct CustomBatchSheet: View {
 
     private var pipelineSection: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Toggle("Article check (script vs blog)", isOn: $options.runArticleCheck)
+            Toggle("Article summary (case sheet)", isOn: $options.runArticleCheck)
             Toggle("Voiceover (Gemini TTS)", isOn: $options.runVoiceover)
             Toggle("Veo videos (paid API)", isOn: $options.runVideos)
 

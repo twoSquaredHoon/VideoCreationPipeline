@@ -74,9 +74,12 @@ ORIGINAL BLOG ARTICLE:
 ---
 """
     client = get_client()
-    is_hook = section.upper() == "HOOK"
+    # CASE is the new-format opener (attention ok, no invented facts) — same as HOOK.
+    is_attention_section = section.upper() in ("HOOK", "CASE")
     system = require_str(
-        "script_line_rewrite_system_hook" if is_hook else "script_line_rewrite_system_body"
+        "script_line_rewrite_system_hook"
+        if is_attention_section
+        else "script_line_rewrite_system_body"
     )
     raw = run_gemini_text(
         client,

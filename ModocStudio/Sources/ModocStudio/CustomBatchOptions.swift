@@ -59,7 +59,7 @@ struct CustomBatchOptions: Equatable {
 
     var pipelineSummary: String {
         var steps = ["Script", "Clip prompts"]
-        if runArticleCheck { steps.insert("Article check", at: 1) }
+        if runArticleCheck { steps.insert("Article summary", at: 1) }
         if runVoiceover { steps.append("Voiceover") }
         if runVideos { steps.append("Veo videos") }
         return steps.joined(separator: " → ")

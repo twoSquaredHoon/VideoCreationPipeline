@@ -17,13 +17,22 @@ from gemini_util import PROJECT_ROOT, get_client
 from language_config import get_language, normalize_language
 from path_hints import format_clips_dir_not_found, format_script_not_found
 from prompt_store import require_dict
+from script_format import normalize_section_header
 
 DEFAULT_TTS_MODEL = "gemini-2.5-flash-preview-tts"
 OUTPUT_BASE = PROJECT_ROOT / "output" / "voiceovers"
-SECTION_HEADERS = frozenset({"HOOK", "BODY", "RELIEF", "CTA"})
 # Clip markup prefixes — visible in script.txt for editors, stripped for TTS.
 SPEECH_LABEL_PREFIX_RE = re.compile(
-    r"^(?:EXPLAIN(?:\s+CLIP\s+\d+)?|SIGNS(?:\s+CLIP\s+\d+)?)\s*:\s*",
+    r"^(?:"
+    r"EXPLAIN(?:\s+CLIP\s+\d+)?|"
+    r"SIGNS(?:\s+CLIP\s+\d+)?|"
+    r"EMERGENCY(?:\s+CLIP\s+\d+)?|"
+    r"CASE(?:\s+CLIP(?:\s+\d+)?)?|"
+    r"WHAT\s+MATTERS(?:\s+CLIP(?:\s+\d+)?)?|"
+    r"ACTION(?:\s+CLIP(?:\s+\d+)?)?|"
+    r"SAFE\s+CTA(?:\s+CLIP)?|"
+    r"CTA(?:\s+CLIP)?"
+    r")\s*:\s*",
     re.IGNORECASE,
 )
 
@@ -32,10 +41,15 @@ def _default_clip_seconds() -> dict[str, int]:
     durations = require_dict("clip_durations")
     return {
         "hook": int(durations.get("hook", 4)),
+        "case": int(durations.get("case", durations.get("hook", 4))),
         "body": int(durations.get("body", 6)),
+        "matters": int(durations.get("matters", durations.get("body", 6))),
+        "action": int(durations.get("action", durations.get("relief", 6))),
         "signs": int(durations.get("signs", 4)),
+        "emergency": int(durations.get("emergency", durations.get("signs", 4))),
         "relief": int(durations.get("relief", 6)),
         "cta": int(durations.get("cta", 4)),
+        "safe_cta": int(durations.get("safe_cta", durations.get("cta", 4))),
     }
 
 
@@ -85,8 +99,7 @@ def script_to_speech_text(script: str) -> str:
             if speech_lines and speech_lines[-1] != "":
                 speech_lines.append("")
             continue
-        header = stripped.rstrip(":").upper()
-        if header in SECTION_HEADERS:
+        if normalize_section_header(stripped) is not None:
             continue
         spoken = strip_speech_label(stripped)
         if spoken is None:
@@ -121,7 +134,7 @@ def estimate_video_seconds(speech_text: str) -> int:
     secs = _default_clip_seconds()
     words = len(speech_text.split())
     lines = [line for line in speech_text.splitlines() if line.strip()]
-    # Roughly hook + 1–2 body beats + relief + cta (4–5 clips at 4–6s each).
+    # Roughly case + matters beats + action + safe_cta (4–5 clips at 4–6s each).
     clip_count = min(6, max(4, 3 + len(lines) // 5))
     sign_lines = len(
         [
@@ -136,11 +149,11 @@ def estimate_video_seconds(speech_text: str) -> int:
         ]
     )
     from_clips = (
-        secs["hook"]
-        + secs["relief"]
-        + secs["cta"]
-        + max(1, clip_count - 4) * secs["body"]
-        + sign_lines * secs["signs"]
+        secs["case"]
+        + secs["action"]
+        + secs["safe_cta"]
+        + max(1, clip_count - 4) * secs["matters"]
+        + sign_lines * secs["emergency"]
     )
     # Shorter scripts → shorter videos; cap near social length.
     from_words = max(22, min(36, int(words * 0.32)))

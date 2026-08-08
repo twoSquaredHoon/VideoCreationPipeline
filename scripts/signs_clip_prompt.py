@@ -7,6 +7,7 @@ import re
 from pathlib import Path
 
 from prompt_store import require_dict
+from script_format import clip_sort_key, is_emergency_clip_id, normalize_section_header
 from visual_cast import VisualCast, get_visual_cast, language_from_script_header
 
 
@@ -31,36 +32,20 @@ def _is_signs_intro(line: str) -> bool:
     return bool(SIGNS_INTRO_RE.search(line))
 
 
-def signs_clip_id(index: int) -> str:
-    return f"signs_{index}"
+def signs_clip_id(index: int, *, emergency: bool = False) -> str:
+    return f"emergency_{index}" if emergency else f"signs_{index}"
 
 
 def is_signs_clip_id(clip_id: str) -> bool:
-    return clip_id == "signs" or bool(re.match(r"^signs_\d+$", clip_id))
+    """True for signs_N / emergency_N (and bare signs / emergency)."""
+    return is_emergency_clip_id(clip_id)
 
 
-def clip_sort_key(clip_id: str) -> tuple:
-    if clip_id == "hook":
-        return (0, 0)
-    if clip_id.startswith("body_"):
-        num = clip_id.split("_", 1)[-1]
-        return (1, int(num) if num.isdigit() else 0)
-    if clip_id.startswith("explain_"):
-        num = clip_id.split("_", 1)[-1]
-        return (2, int(num) if num.isdigit() else 0)
-    if clip_id.startswith("signs_"):
-        num = clip_id.split("_", 1)[-1]
-        return (3, int(num) if num.isdigit() else 0)
-    if clip_id == "signs":
-        return (3, 0)
-    if clip_id == "relief":
-        return (4, 0)
-    if clip_id == "cta":
-        return (5, 0)
-    if clip_id.startswith("custom_"):
-        num = clip_id.split("_", 1)[-1]
-        return (3, 500 + (int(num) if num.isdigit() else 0))
-    return (99, 0)
+def script_uses_emergency_section(script: str) -> bool:
+    for raw in script.splitlines():
+        if normalize_section_header(raw.strip()) == "EMERGENCY":
+            return True
+    return False
 
 
 def bullet_to_visual(line: str, *, child_description: str, cast: VisualCast) -> str:
@@ -157,8 +142,48 @@ def _inline_signs_from_line(line: str) -> list[str]:
     return []
 
 
+def _lines_in_section(script: str, section_name: str) -> list[str]:
+    """Spoken lines inside a named section (new or legacy headers)."""
+    lines_out: list[str] = []
+    in_section = False
+    for raw in script.splitlines():
+        if raw.startswith("#"):
+            continue
+        stripped = raw.strip()
+        if not stripped:
+            continue
+        header = normalize_section_header(stripped)
+        if header is not None:
+            in_section = header == section_name
+            continue
+        if in_section:
+            lines_out.append(stripped)
+    return lines_out
+
+
+def _bullets_from_emergency_lines(lines: list[str]) -> list[str]:
+    bullets: list[str] = []
+    for line in lines:
+        inline = _inline_signs_from_line(line)
+        if inline:
+            bullets.extend(inline)
+            continue
+        if _is_signs_intro(line):
+            continue
+        if line.endswith("?"):
+            continue
+        if re.match(r"^\*\*.*\*\*$", line):
+            continue
+        bullets.append(line)
+    return bullets[:8]
+
+
 def extract_warning_bullets(script: str) -> list[str]:
-    """Pull warning-sign lines from BODY only (after 'watch for', until RELIEF)."""
+    """Pull warning lines from EMERGENCY, or legacy BODY signs block."""
+    emergency_lines = _lines_in_section(script, "EMERGENCY")
+    if emergency_lines:
+        return _bullets_from_emergency_lines(emergency_lines)
+
     lines = [ln.strip() for ln in script.splitlines() if ln.strip()]
     bullets: list[str] = []
     capturing = False
@@ -180,13 +205,8 @@ def extract_warning_bullets(script: str) -> list[str]:
     for line in lines:
         if line.startswith("#"):
             continue
-        upper = line.upper().rstrip(":")
-        if upper in ("HOOK", "BODY", "RELIEF", "CTA") or upper.endswith(":") and upper.replace(":", "") in (
-            "HOOK",
-            "BODY",
-            "RELIEF",
-            "CTA",
-        ):
+        header = normalize_section_header(line)
+        if header is not None:
             capturing = False
             continue
         if re.match(r"^\*\*.*\*\*$", line):
@@ -197,8 +217,12 @@ def extract_warning_bullets(script: str) -> list[str]:
             capturing = True
             bullets.extend(_inline_signs_from_line(line))
             continue
-        if re.search(r"watch for|warning sign|serious sign|señales? de alarma|signos? de alarma|"
-                     r"estate atento|위험\s*신호|위험신호", line, re.I):
+        if re.search(
+            r"watch for|warning sign|serious sign|señales? de alarma|signos? de alarma|"
+            r"estate atento|위험\s*신호|위험신호",
+            line,
+            re.I,
+        ):
             capturing = True
             bullets.extend(_inline_signs_from_line(line))
             continue
@@ -214,11 +238,11 @@ def extract_warning_bullets(script: str) -> list[str]:
 
 
 def build_one_signs_clip(
-    index: int, bullet: str, *, cast: VisualCast
+    index: int, bullet: str, *, cast: VisualCast, emergency: bool = False
 ) -> dict:
     visual = bullet_to_visual(bullet, child_description=cast.child, cast=cast)
-    clip_id = signs_clip_id(index)
-    label = f"SIGNS CLIP {index}"
+    clip_id = signs_clip_id(index, emergency=emergency)
+    label = f"EMERGENCY CLIP {index}" if emergency else f"SIGNS CLIP {index}"
     seconds = signs_clip_seconds()
     cfg = _signs_config()
     veo = str(cfg["veo_template"]).format(
@@ -236,31 +260,37 @@ def build_one_signs_clip(
     }
 
 
-def build_signs_clips_list(bullets: list[str], *, cast: VisualCast) -> list[dict]:
+def build_signs_clips_list(
+    bullets: list[str], *, cast: VisualCast, emergency: bool = False
+) -> list[dict]:
     if not bullets:
         return []
     return [
-        build_one_signs_clip(i, bullet, cast=cast)
+        build_one_signs_clip(i, bullet, cast=cast, emergency=emergency)
         for i, bullet in enumerate(bullets, start=1)
     ]
 
 
-def format_signs_decision_lines(bullets: list[str], *, cast: VisualCast) -> list[str]:
+def format_signs_decision_lines(
+    bullets: list[str], *, cast: VisualCast, emergency: bool = False
+) -> list[str]:
     lines = []
+    prefix = "EMERGENCY CLIP" if emergency else "SIGNS CLIP"
     for i, bullet in enumerate(bullets, start=1):
         visual = bullet_to_visual(bullet, child_description=cast.child, cast=cast)
-        lines.append(f"SIGNS CLIP {i}: {visual}")
+        lines.append(f"{prefix} {i}: {visual}")
     return lines
 
 
 def merge_signs_clips_into_list(
     script: str, clips: list[dict], *, language: str | None = None
 ) -> list[dict]:
-    """Replace any single 'signs' clip with signs_1..signs_N from the script."""
+    """Replace signs/emergency clips with signs_N or emergency_N from the script."""
     bullets = extract_warning_bullets(script)
+    emergency = script_uses_emergency_section(script)
     cast = _resolve_cast(script, language)
     other = [c for c in clips if not is_signs_clip_id(str(c.get("id", "")))]
-    signs_clips = build_signs_clips_list(bullets, cast=cast)
+    signs_clips = build_signs_clips_list(bullets, cast=cast, emergency=emergency)
     merged = other + signs_clips
     merged.sort(key=lambda c: clip_sort_key(str(c["id"])))
     return merged

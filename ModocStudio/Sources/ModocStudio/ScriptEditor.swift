@@ -32,8 +32,6 @@ struct ScriptLineEditResult: Codable {
 }
 
 enum ScriptEditor {
-    private static let sectionHeaders: Set<String> = ["HOOK", "BODY", "RELIEF", "CTA"]
-
     static func removeLine(lineID: String, from script: String) -> String? {
         applyEdit(lineID: lineID, in: script) { _ in nil }
     }
@@ -99,6 +97,11 @@ enum ScriptEditor {
             .uppercased()
             .trimmingCharacters(in: CharacterSet(charactersIn: ": "))
         switch normalized {
+        case "CASE": return .caseSection
+        case "WHAT_MATTERS", "WHAT MATTERS": return .whatMatters
+        case "ACTION": return .action
+        case "EMERGENCY": return .emergency
+        case "SAFE_CTA", "SAFE CTA": return .safeCta
         case "HOOK": return .hook
         case "BODY": return .body
         case "RELIEF": return .relief

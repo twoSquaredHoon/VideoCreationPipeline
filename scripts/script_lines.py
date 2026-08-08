@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-SECTION_HEADERS = {"HOOK", "BODY", "RELIEF", "CTA"}
+from script_format import SECTION_HEADERS, normalize_section_header
 
 
 def iter_spoken_line_records(path: Path):
@@ -17,9 +17,9 @@ def iter_spoken_line_records(path: Path):
         line = raw.strip()
         if not line or line.startswith("#"):
             continue
-        normalized = line.upper().strip(": ")
-        if normalized in SECTION_HEADERS:
-            section = normalized
+        header = normalize_section_header(line)
+        if header is not None:
+            section = header
             section_index = 0
             continue
         section_index += 1

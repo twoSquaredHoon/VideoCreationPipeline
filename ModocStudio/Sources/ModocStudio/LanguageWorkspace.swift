@@ -8,7 +8,8 @@ enum LanguageWorkspace {
         "visual_cast.txt",
         "voiceover.wav", "speech.txt", "voiceover_meta.json",
         "workflow_graph.json",
-        "script_verification.json", "script_verification.txt", "script_verification_overrides.json", "source_article.txt",
+        "script_verification.json", "script_verification.txt", "script_verification_overrides.json",
+        "source_article.txt", "case_sheet.txt",
     ]
 
     static let artifactDirectories = ["videos", "runs"]

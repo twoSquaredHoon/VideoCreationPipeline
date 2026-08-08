@@ -234,13 +234,12 @@ def run_project_pipeline(
     manifest["phase"] = "scriptReview"
     save_manifest(folder, manifest)
 
-    verification_path = folder / "script_verification.json"
-    if not skip_article_check and (not resume or not verification_path.is_file()):
+    case_sheet_path = folder / "case_sheet.txt"
+    if not skip_article_check and (not resume or not case_sheet_path.is_file()):
         step(
-            "Article check",
+            "Article summary",
             [
-                "scripts/compare_script_to_article.py",
-                str(script_path),
+                "scripts/build_case_sheet.py",
                 "--url",
                 url,
                 "--output-dir",

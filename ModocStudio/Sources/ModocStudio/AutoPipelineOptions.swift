@@ -45,7 +45,7 @@ struct AutoPipelineOptions: Equatable {
     var stepLabels: [String] {
         var labels: [String] = []
         if runScript { labels.append("Script") }
-        if runArticleCheck { labels.append("Article check") }
+        if runArticleCheck { labels.append("Article summary") }
         if runClipPrompts { labels.append("Clip prompts") }
         if runVoiceover { labels.append("Voiceover") }
         if runVideos { labels.append("Veo videos") }
@@ -59,8 +59,8 @@ extension AutoPipelineOptions {
         if runScript, !project.hasScript {
             steps.append(.generateScript)
         }
-        if runArticleCheck, !project.hasScriptVerification {
-            steps.append(.verifyScript)
+        if runArticleCheck, !project.hasCaseSheet {
+            steps.append(.extractCaseSheet)
         }
         if runClipPrompts, !project.hasClipsJSON {
             steps.append(.generatePrompts)

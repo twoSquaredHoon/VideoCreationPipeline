@@ -1,11 +1,29 @@
 import Foundation
 
 enum ScriptSection: String, CaseIterable {
+    case caseSection = "CASE"
+    case whatMatters = "WHAT_MATTERS"
+    case action = "ACTION"
+    case emergency = "EMERGENCY"
+    case safeCta = "SAFE_CTA"
+    // Legacy
     case hook = "HOOK"
     case body = "BODY"
     case relief = "RELIEF"
     case cta = "CTA"
     case other = "OTHER"
+
+    /// Prefer new medical labels for display; map legacy when needed.
+    var displayName: String {
+        switch self {
+        case .caseSection, .hook: return "CASE"
+        case .whatMatters, .body: return "WHAT MATTERS"
+        case .action, .relief: return "ACTION"
+        case .emergency: return "EMERGENCY"
+        case .safeCta, .cta: return "SAFE CTA"
+        case .other: return "OTHER"
+        }
+    }
 }
 
 struct ScriptLine: Identifiable, Hashable {
@@ -16,6 +34,13 @@ struct ScriptLine: Identifiable, Hashable {
 
 enum ScriptParser {
     private static let sectionHeaders: [(ScriptSection, String)] = [
+        (.caseSection, "CASE"),
+        (.whatMatters, "WHAT_MATTERS"),
+        (.whatMatters, "WHAT MATTERS"),
+        (.action, "ACTION"),
+        (.emergency, "EMERGENCY"),
+        (.safeCta, "SAFE_CTA"),
+        (.safeCta, "SAFE CTA"),
         (.hook, "HOOK"),
         (.body, "BODY"),
         (.relief, "RELIEF"),

@@ -12,12 +12,13 @@ from explain_clip_prompt import (
     format_explain_decision_lines,
     is_explain_clip_id,
 )
+from script_format import clip_sort_key
 from signs_clip_prompt import (
     build_signs_clips_list,
-    clip_sort_key,
     extract_warning_bullets,
     format_signs_decision_lines,
     is_signs_clip_id,
+    script_uses_emergency_section,
 )
 from visual_cast import get_visual_cast, language_from_script_header
 
@@ -51,6 +52,12 @@ def _strip_derived_decision_lines(text: str) -> str:
         text,
         flags=re.MULTILINE | re.IGNORECASE,
     )
+    text = re.sub(
+        r"^EMERGENCY CLIP(?: \d+)?:.*\n",
+        "",
+        text,
+        flags=re.MULTILINE | re.IGNORECASE,
+    )
     return text
 
 
@@ -60,29 +67,32 @@ def inject_derived_decisions(
     explain_lines: list[str],
     signs_lines: list[str],
 ) -> str:
-    """Insert EXPLAIN and SIGNS decision lines before RELIEF (or at end)."""
+    """Insert EXPLAIN and SIGNS/EMERGENCY lines before SAFE CTA (or CTA/RELIEF)."""
     text = _strip_derived_decision_lines(clip_decisions).rstrip()
     block = "\n".join(explain_lines + signs_lines)
     if not block:
         return text + "\n" if text else ""
 
-    if re.search(r"^RELIEF CLIP:", text, re.MULTILINE | re.IGNORECASE):
-        text = re.sub(
-            r"^(RELIEF CLIP:)",
-            block + r"\n\1",
-            text,
-            count=1,
-            flags=re.MULTILINE | re.IGNORECASE,
-        )
-    elif re.search(r"^SIGNS CLIP 1:", text, re.MULTILINE | re.IGNORECASE):
-        text = re.sub(
-            r"^(SIGNS CLIP 1:)",
-            block + r"\n\1",
-            text,
-            count=1,
-            flags=re.MULTILINE | re.IGNORECASE,
-        )
-    else:
+    anchors = (
+        r"^SAFE CTA CLIP:",
+        r"^CTA CLIP:",
+        r"^RELIEF CLIP:",
+        r"^EMERGENCY CLIP 1:",
+        r"^SIGNS CLIP 1:",
+    )
+    inserted = False
+    for anchor in anchors:
+        if re.search(anchor, text, re.MULTILINE | re.IGNORECASE):
+            text = re.sub(
+                f"({anchor})",
+                block + r"\n\1",
+                text,
+                count=1,
+                flags=re.MULTILINE | re.IGNORECASE,
+            )
+            inserted = True
+            break
+    if not inserted:
         text = text + "\n" + block
     return text.rstrip() + "\n"
 
@@ -103,9 +113,12 @@ def apply_derived_clips(
 
     explain_bullets = extract_explain_bullets(script_raw)
     signs_bullets = extract_warning_bullets(script_raw)
+    emergency = script_uses_emergency_section(script_raw)
 
     explain_lines = format_explain_decision_lines(explain_bullets, cast=cast)
-    signs_lines = format_signs_decision_lines(signs_bullets, cast=cast)
+    signs_lines = format_signs_decision_lines(
+        signs_bullets, cast=cast, emergency=emergency
+    )
 
     merged_decisions = inject_derived_decisions(
         clip_decisions,
@@ -120,7 +133,9 @@ def apply_derived_clips(
         and not is_signs_clip_id(str(c.get("id", "")))
     ]
     derived = build_explain_clips_list(explain_bullets, cast=cast)
-    derived.extend(build_signs_clips_list(signs_bullets, cast=cast))
+    derived.extend(
+        build_signs_clips_list(signs_bullets, cast=cast, emergency=emergency)
+    )
     merged_clips = other + derived
     merged_clips.sort(key=lambda c: clip_sort_key(str(c["id"])))
 
@@ -130,9 +145,11 @@ def apply_derived_clips(
             f"({', '.join(f'explain_{i}' for i in range(1, len(explain_bullets) + 1))})"
         )
     if signs_bullets:
+        prefix = "emergency" if emergency else "signs"
+        label = "EMERGENCY" if emergency else "SIGNS"
         print(
-            f"  SIGNS clips: {len(signs_bullets)} "
-            f"({', '.join(f'signs_{i}' for i in range(1, len(signs_bullets) + 1))})"
+            f"  {label} clips: {len(signs_bullets)} "
+            f"({', '.join(f'{prefix}_{i}' for i in range(1, len(signs_bullets) + 1))})"
         )
 
     return merged_decisions, merged_clips

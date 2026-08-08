@@ -22,8 +22,8 @@ from script_to_clips import (
     run_gemini_text,
     validate_clip_dict,
 )
-from signs_clip_prompt import clip_sort_key
 from prompt_store import require_str
+from script_format import clip_sort_key
 from visual_cast import get_visual_cast, language_from_script_header
 
 CUSTOM_ID_RE = re.compile(r"^custom_(\d+)$")
@@ -56,15 +56,20 @@ def append_custom_decision(decisions_path: Path, *, number: int, description: st
         decisions_path.read_text(encoding="utf-8") if decisions_path.is_file() else ""
     )
     existing = existing.rstrip()
-    if re.search(r"^RELIEF CLIP:", existing, re.MULTILINE | re.IGNORECASE):
-        existing = re.sub(
-            r"^(RELIEF CLIP:)",
-            line + r"\1",
-            existing,
-            count=1,
-            flags=re.MULTILINE | re.IGNORECASE,
-        )
-    else:
+    anchors = (r"^SAFE CTA CLIP:", r"^CTA CLIP:", r"^RELIEF CLIP:")
+    inserted = False
+    for anchor in anchors:
+        if re.search(anchor, existing, re.MULTILINE | re.IGNORECASE):
+            existing = re.sub(
+                f"({anchor})",
+                line + r"\1",
+                existing,
+                count=1,
+                flags=re.MULTILINE | re.IGNORECASE,
+            )
+            inserted = True
+            break
+    if not inserted:
         existing = (existing + "\n\n" + line).strip() if existing else line.strip()
     decisions_path.write_text(existing + "\n", encoding="utf-8")
 

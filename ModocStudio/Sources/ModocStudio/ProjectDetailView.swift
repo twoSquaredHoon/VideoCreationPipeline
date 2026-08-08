@@ -22,7 +22,7 @@ struct ProjectDetailView: View {
     enum DetailTab: String, CaseIterable, Identifiable {
         case workflow = "Workflow"
         case script = "Script"
-        case articleCheck = "Article check"
+        case articleSummary = "Article summary"
         case prompts = "Prompts"
         case voiceover = "Voiceover"
         case clips = "Clips"
@@ -35,7 +35,7 @@ struct ProjectDetailView: View {
         static func tabs(for set: TabSet) -> [DetailTab] {
             switch set {
             case .workspace:
-                [.workflow, .script, .articleCheck, .prompts, .voiceover, .clips, .log, .graph]
+                [.workflow, .script, .articleSummary, .prompts, .voiceover, .clips, .log, .graph]
             case .full:
                 allCases
             }
@@ -195,8 +195,8 @@ struct ProjectDetailView: View {
                 script: loadedScript,
                 clips: clips
             )
-        case .articleCheck:
-            ScriptCheckView(project: current)
+        case .articleSummary:
+            CaseSheetView(project: current)
         case .prompts:
             PromptsView(project: current, clips: clips) {
                 loadDetailContent()
@@ -353,7 +353,7 @@ struct WorkflowView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
-                Text("Run any step at any time. Steps only need their inputs — you can generate voiceover after clips, or re-run a step.")
+                Text("Medical accuracy only — not engagement. Approve the article summary and script before producing clips. Steps only need their inputs; re-run any step anytime.")
                     .font(.callout)
                     .foregroundStyle(.secondary)
 
@@ -371,7 +371,7 @@ struct WorkflowView: View {
                     subtitle: "From blog URL · \(current.manifest.language.displayName)",
                     done: languageHasWork && current.hasScript,
                     active: store.pipeline.runningStep == .generateScript
-                        || store.pipeline.runningStep == .verifyScript
+                        || store.pipeline.runningStep == .extractCaseSheet
                 ) {
                     runButton(
                         title: current.hasScript ? "Regenerate script" : "Generate script",
@@ -380,25 +380,24 @@ struct WorkflowView: View {
                         Task { await run(.generateScript) }
                     }
                     if current.hasScript {
-                        Text("Review in Script tab · fact-check in Article check tab")
+                        Text("Review in Script tab · article summary in Article summary tab")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
-                    if current.hasScriptVerification, let v = current.loadScriptVerification() {
+                    if current.hasCaseSheet {
                         Button {
-                            selectedTab = .articleCheck
+                            selectedTab = .articleSummary
                         } label: {
-                            Label("Article check: \(v.verdict.label)", systemImage: v.verdict.icon)
+                            Label("Open article summary", systemImage: "list.bullet.clipboard")
                                 .font(.caption)
-                                .foregroundStyle(v.verdict.color)
                         }
                         .buttonStyle(.plain)
                     }
                     runButton(
-                        title: "Compare script to article",
-                        enabled: !current.manifest.blogURL.isEmpty && current.hasScript
+                        title: current.hasCaseSheet ? "Rebuild article summary" : "Build article summary",
+                        enabled: !current.manifest.blogURL.isEmpty
                     ) {
-                        Task { await run(.verifyScript, thenOpenArticleCheck: true) }
+                        Task { await run(.extractCaseSheet, thenOpenArticleSummary: true) }
                     }
                 }
 
@@ -662,7 +661,7 @@ struct WorkflowView: View {
 
     private func run(
         _ step: PipelineService.PipelineStep,
-        thenOpenArticleCheck: Bool = false,
+        thenOpenArticleSummary: Bool = false,
         thenOpenPrompts: Bool = false
     ) async {
         actionError = nil
@@ -671,16 +670,16 @@ struct WorkflowView: View {
         let p = current
         do {
             try await store.runWorkflowStep(p, step: step)
-            if thenOpenArticleCheck {
-                selectedTab = .articleCheck
+            if thenOpenArticleSummary {
+                selectedTab = .articleSummary
             }
             if thenOpenPrompts {
                 selectedTab = .prompts
             }
         } catch {
             actionError = error.localizedDescription
-            if thenOpenArticleCheck {
-                selectedTab = .articleCheck
+            if thenOpenArticleSummary {
+                selectedTab = .articleSummary
             }
             if thenOpenPrompts {
                 selectedTab = .prompts

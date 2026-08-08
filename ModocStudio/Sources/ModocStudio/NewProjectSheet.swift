@@ -25,7 +25,7 @@ struct NewProjectSheet: View {
                 .font(.title2.bold())
 
             Text(isManual
-                ? "Paste a FeverCoach blog URL to create a project. Run each pipeline step yourself in Browse Projects — script, article check, clip prompts, voiceover, and videos."
+                ? "Paste a FeverCoach blog URL to create a project. Run each pipeline step yourself in Browse Projects — script, article summary, clip prompts, voiceover, and videos."
                 : "Paste a FeverCoach blog URL. The pipeline runs in the background — you can browse the app while it works.")
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)

@@ -827,7 +827,7 @@ final class ProjectStore: ObservableObject {
             } else if generateVideo {
                 manifest.phase = .generatingVideos
             }
-        case .verifyScript:
+        case .extractCaseSheet:
             break
         case .rewriteScriptLine:
             break
@@ -857,7 +857,7 @@ final class ProjectStore: ObservableObject {
             manifest.lastError = nil
 
             switch step {
-            case .generateScript, .verifyScript, .rewriteScriptLine:
+            case .generateScript, .extractCaseSheet, .rewriteScriptLine:
                 manifest.phase = .scriptReview
                 if case .generateScript = step {
                     manifest.title = VideoProject.title(from: updated.loadScript())
@@ -968,15 +968,15 @@ final class ProjectStore: ObservableObject {
             return (.clip, "Clip: \(id)", id)
         case .createCustomClip:
             return (.clip, "Custom clip", nil)
-        case .verifyScript:
-            return (.script, "Script verification", nil)
+        case .extractCaseSheet:
+            return (.script, "Article summary", nil)
         case .rewriteScriptLine(let id):
             return (.script, "Rewrite line \(id)", nil)
         }
     }
 
-    func verifyScript(_ project: VideoProject) async throws {
-        try await runWorkflowStep(project, step: .verifyScript)
+    func extractCaseSheet(_ project: VideoProject) async throws {
+        try await runWorkflowStep(project, step: .extractCaseSheet)
     }
 
     func dismissScriptLine(_ project: VideoProject, lineID: String) throws {
@@ -1113,9 +1113,24 @@ final class ProjectStore: ObservableObject {
         let url = project.decisionsURL
         var existing = (try? String(contentsOf: url, encoding: .utf8)) ?? ""
         existing = existing.trimmingCharacters(in: .whitespacesAndNewlines)
-        if let range = existing.range(of: #"^RELIEF CLIP:"#, options: [.regularExpression, .caseInsensitive]) {
-            existing.insert(contentsOf: line, at: range.lowerBound)
-        } else if existing.isEmpty {
+        let insertBefore = [
+            #"^SAFE CTA CLIP:"#,
+            #"^CTA CLIP:"#,
+            #"^RELIEF CLIP:"#,
+        ]
+        var inserted = false
+        for pattern in insertBefore {
+            if let range = existing.range(of: pattern, options: [.regularExpression, .caseInsensitive]) {
+                existing.insert(contentsOf: line, at: range.lowerBound)
+                inserted = true
+                break
+            }
+        }
+        if inserted {
+            try? (existing.hasSuffix("\n") ? existing : existing + "\n").write(to: url, atomically: true, encoding: .utf8)
+            return
+        }
+        if existing.isEmpty {
             existing = line.trimmingCharacters(in: .whitespacesAndNewlines)
         } else {
             existing += "\n\n" + line.trimmingCharacters(in: .whitespacesAndNewlines)

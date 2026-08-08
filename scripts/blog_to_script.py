@@ -13,6 +13,7 @@ from urllib.parse import urlparse
 import trafilatura
 from google.genai import types
 
+from case_sheet import extract_case_sheet, save_case_sheet
 from gemini_util import PROJECT_ROOT, get_client
 from language_config import get_language, normalize_language
 
@@ -56,11 +57,30 @@ def slug_from_url(url: str) -> str:
 
 
 def generate_script(
-    blog_text: str, *, model: str, source_url: str, language: str = "en"
+    blog_text: str,
+    *,
+    model: str,
+    source_url: str,
+    language: str = "en",
+    case_sheet: str | None = None,
 ) -> str:
     client = get_client()
     lang = get_language(language)
     print(f"Writing script with {model} ({lang.label})...")
+
+    sheet_block = ""
+    if case_sheet:
+        sheet_block = f"""
+CASE SHEET (authoritative — do not contradict or strengthen beyond this):
+---
+{case_sheet}
+---
+
+If the case sheet says BLOCK_SCRIPT: yes, output only:
+NEEDS_MEDICAL_REVIEW:
+[reasons from the case sheet]
+Do not write CASE/WHAT_MATTERS/ACTION/EMERGENCY/SAFE_CTA spoken lines.
+"""
 
     user_message = f"""Blog URL: {source_url}
 
@@ -68,7 +88,7 @@ Blog article text:
 ---
 {blog_text}
 ---
-
+{sheet_block}
 {lang.script_rules}
 """
 
@@ -76,7 +96,7 @@ Blog article text:
         model=model,
         contents=user_message,
         config=types.GenerateContentConfig(
-            temperature=0.4,
+            temperature=0.2,
             system_instruction=lang.script_system,
         ),
     )
@@ -88,7 +108,7 @@ Blog article text:
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Read a blog URL and generate a short-form video script."
+        description="Read a blog URL and generate a medically accurate video script."
     )
     parser.add_argument("url", help="Blog post URL")
     parser.add_argument(
@@ -122,14 +142,23 @@ def main() -> None:
     try:
         language = normalize_language(args.language)
         blog_text = fetch_blog_text(url)
-        script = generate_script(
+        case_sheet = extract_case_sheet(
             blog_text, model=args.model, source_url=url, language=language
+        )
+        print("\n" + "=" * 40 + " CASE SHEET " + "=" * 28 + "\n")
+        print(case_sheet)
+        script = generate_script(
+            blog_text,
+            model=args.model,
+            source_url=url,
+            language=language,
+            case_sheet=case_sheet,
         )
     except Exception as exc:
         print(f"\nFAILED: {exc}", file=sys.stderr)
         sys.exit(1)
 
-    print("\n" + "=" * 40 + "\n")
+    print("\n" + "=" * 40 + " SCRIPT " + "=" * 32 + "\n")
     print(script)
 
     if args.print_only:
@@ -148,8 +177,15 @@ def main() -> None:
         f"# Generated: {datetime.now().isoformat(timespec='seconds')}\n\n"
     )
     out_path.write_text(header + script + "\n", encoding="utf-8")
+
+    if out_path.name == "script.txt" or (out_path.parent / "project.json").is_file():
+        sheet_path = out_path.parent / "case_sheet.txt"
+    else:
+        sheet_path = out_path.with_name(out_path.stem + "-case_sheet.txt")
+    save_case_sheet(sheet_path, case_sheet, source_url=url, language=lang)
     print("\n" + "=" * 40)
-    print(f"Saved to {out_path}")
+    print(f"Saved script to {out_path}")
+    print(f"Saved case sheet to {sheet_path}")
 
 
 if __name__ == "__main__":

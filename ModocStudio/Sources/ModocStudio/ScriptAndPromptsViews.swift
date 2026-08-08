@@ -170,7 +170,7 @@ struct ScriptReviewView: View {
 
     @ViewBuilder
     private func sectionBlock(_ group: SectionGroup) -> some View {
-        Text(group.section.rawValue)
+        Text(group.section.displayName)
             .font(.caption.weight(.semibold))
             .foregroundStyle(.secondary)
             .padding(.top, 12)

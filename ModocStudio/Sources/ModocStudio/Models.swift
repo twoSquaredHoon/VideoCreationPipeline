@@ -334,12 +334,20 @@ struct VideoProject: Identifiable, Hashable {
     }
 
     static func sortKey(for id: String) -> (Int, Int) {
-        if id == "hook" { return (0, 0) }
+        // New medical format: CASE → WHAT MATTERS → ACTION → EMERGENCY → SAFE CTA
+        if id == "case" || id == "hook" { return (0, 0) }
+        if id.hasPrefix("case_"), let n = Int(id.dropFirst(5)) { return (0, n) }
+        if id == "matters" { return (1, 0) }
+        if id.hasPrefix("matters_"), let n = Int(id.dropFirst(8)) { return (1, n) }
         if id.hasPrefix("body_"), let n = Int(id.dropFirst(5)) { return (1, n) }
-        if id.hasPrefix("explain_"), let n = Int(id.dropFirst(8)) { return (2, n) }
+        if id == "action" { return (2, 0) }
+        if id.hasPrefix("action_"), let n = Int(id.dropFirst(7)) { return (2, n) }
+        if id == "relief" { return (2, 50) }
+        if id.hasPrefix("explain_"), let n = Int(id.dropFirst(8)) { return (2, 100 + n) }
+        if id.hasPrefix("emergency_"), let n = Int(id.dropFirst(10)) { return (3, n) }
         if id.hasPrefix("signs_"), let n = Int(id.dropFirst(6)) { return (3, n) }
-        if id == "relief" { return (4, 0) }
-        if id == "cta" { return (5, 0) }
+        if id == "emergency" || id == "signs" { return (3, 0) }
+        if id == "safe_cta" || id == "cta" { return (4, 0) }
         if id.hasPrefix("custom_"), let n = Int(id.dropFirst(7)) { return (3, 500 + n) }
         return (99, 0)
     }

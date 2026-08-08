@@ -11,6 +11,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from blog_to_script import fetch_blog_text
+from case_sheet import extract_case_sheet, save_case_sheet
 from gemini_util import get_client
 from language_config import get_language, normalize_language
 from prompts import SCRIPT_VERIFICATION_PROMPT
@@ -120,13 +121,22 @@ def compare_script_to_article(
     source_url: str,
     language: str,
     model: str,
+    case_sheet: str = "",
 ) -> dict:
     lang = get_language(language)
+    sheet_block = ""
+    if case_sheet.strip():
+        sheet_block = f"""
+CASE SHEET (structured summary of important article facts — use this to catch merged timelines / invented thresholds):
+---
+{case_sheet}
+---
+"""
     user = f"""{SCRIPT_VERIFICATION_PROMPT}
 
 Blog URL: {source_url}
 Script language: {lang.label}
-
+{sheet_block}
 ORIGINAL BLOG ARTICLE:
 ---
 {article_text}
@@ -209,6 +219,17 @@ def main() -> None:
             article_cache.write_text(article_text + "\n", encoding="utf-8")
             print(f"  Cached article → {article_cache}")
 
+        sheet_path = out_dir / "case_sheet.txt"
+        print("Building case sheet (important facts summary)…")
+        case_sheet = extract_case_sheet(
+            article_text,
+            model=args.model,
+            source_url=url,
+            language=language,
+        )
+        save_case_sheet(sheet_path, case_sheet, source_url=url, language=language)
+        print(f"  Saved case sheet → {sheet_path}")
+
         print(f"Comparing script to article with {args.model}...")
         report = compare_script_to_article(
             script_text=script_text,
@@ -217,6 +238,7 @@ def main() -> None:
             source_url=url,
             language=language,
             model=args.model,
+            case_sheet=case_sheet,
         )
     except Exception as exc:
         print(f"\nFAILED: {exc}", file=sys.stderr)
@@ -234,6 +256,7 @@ def main() -> None:
     print(report.get("summary", ""))
     print(f"\nSaved → {json_path}")
     print(f"Saved → {txt_path}")
+    print(f"Saved → {out_dir / 'case_sheet.txt'}")
 
 
 if __name__ == "__main__":

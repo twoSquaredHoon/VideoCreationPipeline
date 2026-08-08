@@ -7,7 +7,7 @@ import re
 from pathlib import Path
 
 from prompt_store import require_dict
-from signs_clip_prompt import clip_sort_key, is_signs_clip_id
+from script_format import clip_sort_key, normalize_section_header
 from visual_cast import VisualCast, get_visual_cast, language_from_script_header
 
 
@@ -54,23 +54,23 @@ def is_explain_clip_id(clip_id: str) -> bool:
     return bool(re.match(r"^explain_\d+$", clip_id))
 
 
-def _body_lines(script: str) -> list[str]:
-    lines = script.splitlines()
-    in_body = False
-    body: list[str] = []
-    for raw in lines:
+def _lines_in_sections(script: str, *section_names: str) -> list[str]:
+    lines_out: list[str] = []
+    in_target = False
+    wanted = set(section_names)
+    for raw in script.splitlines():
         if raw.startswith("#"):
             continue
         stripped = raw.strip()
         if not stripped:
             continue
-        upper = stripped.upper().rstrip(":")
-        if upper in ("HOOK", "BODY", "RELIEF", "CTA"):
-            in_body = upper == "BODY"
+        header = normalize_section_header(stripped)
+        if header is not None:
+            in_target = header in wanted
             continue
-        if in_body:
-            body.append(stripped)
-    return body
+        if in_target:
+            lines_out.append(stripped)
+    return lines_out
 
 
 def _is_signs_intro(line: str) -> bool:
@@ -95,18 +95,26 @@ def _text_before_signs_intro(line: str) -> str:
     return line
 
 
-def extract_explain_bullets(script: str) -> list[str]:
-    """BODY lines about dosing / home care before the warning-signs block."""
-    body = _body_lines(script)
+def _explain_bullets_from_lines(lines: list[str], *, stop_at_signs: bool) -> list[str]:
     bullets: list[str] = []
-    for line in body:
-        prefix = _text_before_signs_intro(line)
+    for line in lines:
+        prefix = _text_before_signs_intro(line) if stop_at_signs else line
         for sent in _split_sentences(prefix):
             if _is_explain_line(sent):
                 bullets.append(sent)
-        if _is_signs_intro(line):
+        if stop_at_signs and _is_signs_intro(line):
             break
     return bullets[:6]
+
+
+def extract_explain_bullets(script: str) -> list[str]:
+    """ACTION (or legacy BODY) lines about dosing / home care."""
+    action = _lines_in_sections(script, "ACTION")
+    if action:
+        return _explain_bullets_from_lines(action, stop_at_signs=False)
+
+    body = _lines_in_sections(script, "BODY")
+    return _explain_bullets_from_lines(body, stop_at_signs=True)
 
 
 def explain_line_to_visual(line: str, *, cast: VisualCast) -> str:

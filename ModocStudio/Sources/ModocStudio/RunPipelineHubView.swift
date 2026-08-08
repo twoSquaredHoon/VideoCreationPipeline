@@ -16,7 +16,7 @@ struct RunPipelineHubView: View {
 
                 creationCard(
                     title: "Single Video",
-                    subtitle: "Paste one blog URL and run the full pipeline automatically — script, article check, clip prompts, voiceover, and Veo videos.",
+                    subtitle: "Paste one blog URL and run the medical pipeline — case summary, accurate script, clip prompts, calm voiceover, and Veo videos.",
                     systemImage: "1.circle.fill",
                     tint: .orange
                 ) {

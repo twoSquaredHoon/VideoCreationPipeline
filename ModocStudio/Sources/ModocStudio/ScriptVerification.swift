@@ -274,8 +274,16 @@ extension VideoProject {
         folderURL.appendingPathComponent("source_article.txt")
     }
 
+    var caseSheetURL: URL {
+        folderURL.appendingPathComponent("case_sheet.txt")
+    }
+
     var hasScriptVerification: Bool {
         FileManager.default.fileExists(atPath: scriptVerificationJSONURL.path)
+    }
+
+    var hasCaseSheet: Bool {
+        FileManager.default.fileExists(atPath: caseSheetURL.path)
     }
 
     func loadScriptVerification() -> ScriptVerificationReport? {
@@ -292,6 +300,10 @@ extension VideoProject {
 
     func loadSourceArticle() -> String {
         (try? String(contentsOf: sourceArticleURL, encoding: .utf8)) ?? ""
+    }
+
+    func loadCaseSheet() -> String {
+        (try? String(contentsOf: caseSheetURL, encoding: .utf8)) ?? ""
     }
 
     func loadVerificationOverrides(for report: ScriptVerificationReport) -> Set<String> {

@@ -88,11 +88,10 @@ final class PipelineService: ObservableObject {
                 args.append("--generate-video")
             }
             try await runPython(script: "scripts/create_custom_clip.py", args: args)
-        case .verifyScript:
+        case .extractCaseSheet:
             try await runPython(
-                script: "scripts/compare_script_to_article.py",
+                script: "scripts/build_case_sheet.py",
                 args: [
-                    project.scriptURL.path,
                     "--url", project.manifest.blogURL,
                     "--output-dir", project.folderURL.path,
                     "--language", project.manifest.language.rawValue,
@@ -133,7 +132,7 @@ final class PipelineService: ObservableObject {
         case regenerateClip(String)
         case regenerateAllClips
         case createCustomClip(linesFile: URL, generateVideo: Bool)
-        case verifyScript
+        case extractCaseSheet
         case rewriteScriptLine(String)
 
         var title: String {
@@ -145,7 +144,7 @@ final class PipelineService: ObservableObject {
             case .regenerateClip(let id): return "Regenerate clip: \(id)"
             case .regenerateAllClips: return "Regenerate all clips"
             case .createCustomClip: return "Create custom clip"
-            case .verifyScript: return "Script vs article"
+            case .extractCaseSheet: return "Article → Case sheet"
             case .rewriteScriptLine(let id): return "Rewrite script line \(id)"
             }
         }

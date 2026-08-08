@@ -18,10 +18,8 @@ from prompts import clip_decision_prompt, clip_detail_json_instruction
 from prompt_store import require_dict, require_str
 from derived_clips import apply_derived_clips, format_clip_prompts_text
 from explain_clip_prompt import is_explain_clip_id
-from signs_clip_prompt import (
-    clip_sort_key,
-    is_signs_clip_id,
-)
+from script_format import clip_sort_key
+from signs_clip_prompt import is_signs_clip_id
 from visual_cast import get_visual_cast, language_from_script_header
 from veo_util import generate_video
 
@@ -104,7 +102,7 @@ def run_gemini_text(
     last_error = "unknown error"
     for attempt in range(1, max_retries + 1):
         config = types.GenerateContentConfig(
-            temperature=0.35 if attempt == 1 else 0.5,
+            temperature=0.2 if attempt == 1 else 0.3,
         )
         if system:
             config.system_instruction = system
@@ -145,41 +143,68 @@ def single_clip_prompt(cast_bible: str) -> str:
 
 
 def parse_clip_decisions(clip_decisions: str) -> list[tuple[str, str, str]]:
-    """Parse HOOK CLIP: ... lines into (id, label, description)."""
-    patterns: list[tuple[str, str, str]] = [
-        (r"^HOOK CLIP:\s*(.+)$", "hook", "HOOK CLIP"),
-        (r"^BODY CLIP 1:\s*(.+)$", "body_1", "BODY CLIP 1"),
-        (r"^BODY CLIP 2:\s*(.+)$", "body_2", "BODY CLIP 2"),
-        (r"^EXPLAIN CLIP (\d+):\s*(.+)$", "explain", "EXPLAIN CLIP"),
-        (r"^SIGNS CLIP (\d+):\s*(.+)$", "signs", "SIGNS CLIP"),
-        (r"^RELIEF CLIP:\s*(.+)$", "relief", "RELIEF CLIP"),
-        (r"^CTA CLIP:\s*(.+)$", "cta", "CTA CLIP"),
+    """Parse CASE/WHAT MATTERS/... (and legacy HOOK/BODY/...) decision lines."""
+    # (pattern, base_id, label, kind) — kind: numbered | optional_num | plain
+    patterns: list[tuple[str, str, str, str]] = [
+        (r"^CASE CLIP(?:\s+(\d+))?:\s*(.+)$", "case", "CASE CLIP", "optional_num"),
+        (
+            r"^WHAT MATTERS CLIP(?:\s+(\d+))?:\s*(.+)$",
+            "matters",
+            "WHAT MATTERS CLIP",
+            "optional_num",
+        ),
+        (r"^ACTION CLIP(?:\s+(\d+))?:\s*(.+)$", "action", "ACTION CLIP", "optional_num"),
+        (r"^EMERGENCY CLIP (\d+):\s*(.+)$", "emergency", "EMERGENCY CLIP", "numbered"),
+        (r"^SAFE CTA CLIP:\s*(.+)$", "safe_cta", "SAFE CTA CLIP", "plain"),
+        # Legacy
+        (r"^HOOK CLIP:\s*(.+)$", "hook", "HOOK CLIP", "plain"),
+        (r"^BODY CLIP 1:\s*(.+)$", "body_1", "BODY CLIP 1", "plain"),
+        (r"^BODY CLIP 2:\s*(.+)$", "body_2", "BODY CLIP 2", "plain"),
+        (r"^EXPLAIN CLIP (\d+):\s*(.+)$", "explain", "EXPLAIN CLIP", "numbered"),
+        (r"^SIGNS CLIP (\d+):\s*(.+)$", "signs", "SIGNS CLIP", "numbered"),
+        (r"^RELIEF CLIP:\s*(.+)$", "relief", "RELIEF CLIP", "plain"),
+        (r"^CTA CLIP:\s*(.+)$", "cta", "CTA CLIP", "plain"),
     ]
     found: list[tuple[str, str, str]] = []
     for line in clip_decisions.splitlines():
         line = line.strip()
         if not line:
             continue
-        for pattern, clip_id, label in patterns:
+        for pattern, clip_id, label, kind in patterns:
             match = re.match(pattern, line, re.IGNORECASE)
-            if match:
-                if clip_id == "signs" and label == "SIGNS CLIP" and match.lastindex == 2:
-                    n = match.group(1)
-                    found.append((f"signs_{n}", f"SIGNS CLIP {n}", match.group(2).strip()))
-                elif clip_id == "explain" and label == "EXPLAIN CLIP" and match.lastindex == 2:
-                    n = match.group(1)
-                    found.append((f"explain_{n}", f"EXPLAIN CLIP {n}", match.group(2).strip()))
+            if not match:
+                continue
+            if kind == "numbered":
+                n = match.group(1)
+                found.append((f"{clip_id}_{n}", f"{label} {n}", match.group(2).strip()))
+            elif kind == "optional_num":
+                n = match.group(1)
+                desc = match.group(2).strip()
+                if n:
+                    found.append((f"{clip_id}_{n}", f"{label} {n}", desc))
                 else:
-                    found.append((clip_id, label, match.group(1).strip()))
-                break
+                    found.append((clip_id, label, desc))
+            else:
+                found.append((clip_id, label, match.group(1).strip()))
+            break
     return found
 
 
 def default_duration(clip_id: str) -> int:
     durations = require_dict("clip_durations")
+    if clip_id == "case" or clip_id.startswith("case_"):
+        return int(durations.get("case", durations.get("hook", 4)))
+    if clip_id == "matters" or clip_id.startswith("matters_"):
+        return int(durations.get("matters", durations.get("body", 6)))
+    if clip_id == "action" or clip_id.startswith("action_"):
+        return int(durations.get("action", durations.get("relief", 6)))
+    if clip_id == "safe_cta":
+        return int(durations.get("safe_cta", durations.get("cta", 4)))
     if clip_id in ("hook", "cta"):
         return int(durations.get(clip_id, 4))
     if is_signs_clip_id(clip_id):
+        if clip_id == "emergency" or clip_id.startswith("emergency_"):
+            return int(durations.get("emergency", durations.get("signs", 4)))
         return int(durations.get("signs", 4))
     if is_explain_clip_id(clip_id):
         return int(durations.get("explain", 4))
